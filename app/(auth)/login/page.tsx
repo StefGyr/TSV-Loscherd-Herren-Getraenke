@@ -1,57 +1,97 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
 
 export default function LoginPage() {
   const [supabase, setSupabase] = useState<any>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [msg, setMsg] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const router = useRouter()
 
+  // 🔹 Supabase korrekt dynamisch laden
   useEffect(() => {
     import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
   }, [])
 
-  const onLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase) return
+    setError(null)
+    setLoading(true)
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (error) return setMsg(error.message)
-    if (data.session) window.location.href = '/'
+    if (error) {
+      setError('❌ Login fehlgeschlagen – bitte Daten prüfen.')
+    } else {
+      router.push('/')
+    }
+
+    setLoading(false)
   }
 
   return (
-    <main className="max-w-sm mx-auto pt-24 px-4">
-      <h1 className="text-2xl font-semibold mb-6">Login</h1>
-      <form onSubmit={onLogin} className="space-y-3">
-        <input
-          className="w-full px-3 py-2 bg-neutral-800 rounded"
-          type="email"
-          placeholder="E-Mail"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          className="w-full px-3 py-2 bg-neutral-800 rounded"
-          type="password"
-          placeholder="Passwort"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button className="w-full py-2 rounded bg-white text-black font-medium">
-          Login
-        </button>
-      </form>
-      {msg && <p className="mt-3 text-red-400">{msg}</p>}
-    </main>
+    <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-white px-6">
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-neutral-900/70 border border-neutral-800 p-8 rounded-2xl w-full max-w-sm shadow-lg"
+      >
+        <h1 className="text-2xl font-semibold mb-6 text-center">🔐 Login</h1>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <input
+              type="email"
+              placeholder="E-Mail"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
+              required
+            />
+          </div>
+          <div>
+            <input
+              type="password"
+              placeholder="Passwort"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
+              required
+            />
+          </div>
+
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-green-700 hover:bg-green-800 py-3 rounded-lg font-medium transition disabled:opacity-50"
+          >
+            {loading ? 'Einloggen...' : 'Einloggen'}
+          </button>
+        </form>
+
+        {/* 🔹 Login-Links unten */}
+        <div className="mt-6 text-center text-sm text-gray-400 space-y-2">
+          <p>
+            Kein Account?{' '}
+            <a href="/register" className="text-green-400 hover:underline">
+              Jetzt registrieren
+            </a>
+          </p>
+          <p>
+            Passwort vergessen?{' '}
+            <a href="/reset" className="text-green-400 hover:underline">
+              Passwort zurücksetzen
+            </a>
+          </p>
+        </div>
+      </motion.div>
+    </div>
   )
 }
