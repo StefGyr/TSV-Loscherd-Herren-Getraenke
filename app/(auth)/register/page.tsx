@@ -1,144 +1,134 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { supabase } from '@/lib/supabase'
 
 export default function RegisterPage() {
-  const [supabase, setSupabase] = useState<any>(null)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const router = useRouter()
+
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
 
-  // ✅ Supabase korrekt laden
-  useEffect(() => {
-    import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
-  }, [])
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!supabase) return
+  const handleRegister = async () => {
     setError(null)
     setLoading(true)
 
-    if (pin.length !== 6 || isNaN(Number(pin))) {
-      setError('PIN muss aus 6 Ziffern bestehen.')
+    if (pin.length !== 6 || !/^\d+$/.test(pin)) {
+      setError('PIN muss genau 6 Ziffern haben.')
       setLoading(false)
       return
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    // 1️⃣ Prüfen, ob PIN schon vergeben
+    const { data: existingPin } = await supabase.from('profiles').select('id').eq('pin', pin)
+    if (existingPin && existingPin.length > 0) {
+      setError('Diese PIN ist bereits vergeben – bitte eine andere wählen.')
+      setLoading(false)
+      return
+    }
+
+    // 2️⃣ Benutzer registrieren
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
     })
 
-    if (error) {
-      setError(error.message)
+    if (signUpError) {
+      setError('Registrierung fehlgeschlagen: ' + signUpError.message)
       setLoading(false)
       return
     }
 
-    const user = data.user
-    if (user) {
-      const { error: insertError } = await supabase.from('profiles').insert([
-        {
-          id: user.id,
-          name: `${firstName} ${lastName}`,
-          first_name: firstName,
-          last_name: lastName,
-          pin,
-          email,
-          is_admin: false,
-        },
-      ])
-
-      if (insertError) {
-        console.error('Profile insert failed:', insertError)
-        setError('Fehler beim Anlegen des Profils.')
-      }
+    const userId = signUpData?.user?.id
+    if (!userId) {
+      setError('Registrierung unvollständig – bitte erneut versuchen.')
+      setLoading(false)
+      return
     }
 
-    setLoading(false)
+    // 3️⃣ Profil-Daten ergänzen
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        first_name: firstName,
+        last_name: lastName,
+        pin,
+        is_admin: false,
+      })
+      .eq('id', userId)
+
+    if (profileError) {
+      console.error(profileError)
+      setError('Fehler beim Speichern des Profils.')
+      setLoading(false)
+      return
+    }
+
+    // 4️⃣ Weiterleitung
     router.push('/login')
+    setLoading(false)
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-white px-6">
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-neutral-900/70 border border-neutral-800 p-8 rounded-2xl w-full max-w-sm shadow-lg"
-      >
-        <h1 className="text-2xl font-semibold mb-6 text-center">🧾 Registrierung</h1>
+    <div className="max-w-md mx-auto mt-10 p-4 bg-gray-900 rounded shadow text-white">
+      <h1 className="text-2xl font-bold mb-4 text-center">Registrieren</h1>
 
-        <form onSubmit={handleRegister} className="space-y-4">
-          <input
-            type="text"
-            placeholder="Vorname"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-green-600"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Nachname"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-green-600"
-            required
-          />
-          <input
-            type="email"
-            placeholder="E-Mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-green-600"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Passwort"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-green-600"
-            required
-          />
-          <input
-            type="text"
-            placeholder="6-stelliger PIN (für Terminal)"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            maxLength={6}
-            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-green-600"
-            required
-          />
+      <div className="space-y-3">
+        <input
+          type="text"
+          placeholder="Vorname"
+          value={firstName}
+          onChange={(e) => setFirstName(e.target.value)}
+          className="w-full p-2 rounded bg-gray-800 border border-gray-700"
+        />
+        <input
+          type="text"
+          placeholder="Nachname"
+          value={lastName}
+          onChange={(e) => setLastName(e.target.value)}
+          className="w-full p-2 rounded bg-gray-800 border border-gray-700"
+        />
+        <input
+          type="email"
+          placeholder="E-Mail"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full p-2 rounded bg-gray-800 border border-gray-700"
+        />
+        <input
+          type="password"
+          placeholder="Passwort"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full p-2 rounded bg-gray-800 border border-gray-700"
+        />
+        <input
+          type="text"
+          placeholder="6-stelliger PIN für Terminal"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          className="w-full p-2 rounded bg-gray-800 border border-gray-700"
+        />
+        <p className="text-sm text-gray-400">
+          Der PIN ist <strong>6-stellig</strong> und dient nur zur Nutzung am Terminal.
+        </p>
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-green-700 hover:bg-green-800 py-3 rounded-lg font-medium transition disabled:opacity-50"
-          >
-            {loading ? 'Registriere...' : 'Registrieren'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center text-sm text-gray-400">
-          <p>
-            Bereits registriert?{' '}
-            <a href="/login" className="text-green-400 hover:underline">
-              Zum Login
-            </a>
-          </p>
-        </div>
-      </motion.div>
+        <button
+          onClick={handleRegister}
+          disabled={loading}
+          className="w-full bg-green-700 hover:bg-green-800 p-2 rounded mt-2 font-medium disabled:opacity-50"
+        >
+          {loading ? 'Registrieren...' : 'Registrieren'}
+        </button>
+      </div>
     </div>
   )
 }
