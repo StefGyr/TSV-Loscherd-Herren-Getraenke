@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 
@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
-  // 🔹 Supabase korrekt dynamisch laden
   useEffect(() => {
     import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
   }, [])
@@ -25,11 +24,8 @@ export default function LoginPage() {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (error) {
-      setError('❌ Login fehlgeschlagen – bitte Daten prüfen.')
-    } else {
-      router.push('/')
-    }
+    if (error) setError('Login fehlgeschlagen – bitte prüfen.')
+    else router.push('/')
 
     setLoading(false)
   }
@@ -44,26 +40,22 @@ export default function LoginPage() {
         <h1 className="text-2xl font-semibold mb-6 text-center">🔐 Login</h1>
 
         <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <input
-              type="email"
-              placeholder="E-Mail"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
-              required
-            />
-          </div>
-          <div>
-            <input
-              type="password"
-              placeholder="Passwort"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
-              required
-            />
-          </div>
+          <input
+            type="email"
+            placeholder="E-Mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
+            required
+          />
+          <input
+            type="password"
+            placeholder="Passwort"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-3 rounded-lg bg-neutral-800 border border-neutral-700 focus:ring-2 focus:ring-green-600"
+            required
+          />
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
 
@@ -76,7 +68,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* 🔹 Login-Links unten */}
         <div className="mt-6 text-center text-sm text-gray-400 space-y-2">
           <p>
             Kein Account?{' '}
