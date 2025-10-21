@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 
@@ -15,10 +15,10 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
-  // 🔹 Supabase dynamisch importieren
-  useState(() => {
+  // ✅ Supabase korrekt laden
+  useEffect(() => {
     import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
-  })
+  }, [])
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,7 +32,6 @@ export default function RegisterPage() {
       return
     }
 
-    // 🔹 Account anlegen
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -46,8 +45,7 @@ export default function RegisterPage() {
 
     const user = data.user
     if (user) {
-      // 🔹 Profil-Eintrag anlegen
-      await supabase.from('profiles').insert([
+      const { error: insertError } = await supabase.from('profiles').insert([
         {
           id: user.id,
           name: `${firstName} ${lastName}`,
@@ -58,6 +56,11 @@ export default function RegisterPage() {
           is_admin: false,
         },
       ])
+
+      if (insertError) {
+        console.error('Profile insert failed:', insertError)
+        setError('Fehler beim Anlegen des Profils.')
+      }
     }
 
     setLoading(false)
