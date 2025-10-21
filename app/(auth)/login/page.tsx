@@ -1,40 +1,30 @@
 'use client'
-import { useState } from 'react'
-import { supabase } from '@/lib/supabase-browser'
+
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
+  const [supabase, setSupabase] = useState<any>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
+  }, [])
 
   const onLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    setMsg(null)
+    if (!supabase) return
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    setLoading(false)
-
-    if (error) {
-      console.error('Login error:', error.message)
-      setMsg('Login fehlgeschlagen: ' + error.message)
-      return
-    }
-
-    if (data?.session) {
-  console.log('Login erfolgreich:', data.session)
-  window.location.href = '/' // harter reload, damit Middleware greift
-}
- else {
-      setMsg('Kein Session-Token erhalten.')
-    }
+    if (error) return setMsg(error.message)
+    if (data.session) window.location.href = '/'
   }
 
   return (
@@ -57,22 +47,11 @@ export default function LoginPage() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <button
-          disabled={loading}
-          className="w-full py-2 rounded bg-white text-black font-medium"
-        >
-          {loading ? 'Anmeldung läuft…' : 'Login'}
+        <button className="w-full py-2 rounded bg-white text-black font-medium">
+          Login
         </button>
       </form>
       {msg && <p className="mt-3 text-red-400">{msg}</p>}
-      <div className="mt-6 text-sm flex justify-between">
-        <a href="/register" className="underline">
-          Registrieren
-        </a>
-        <a href="/reset" className="underline">
-          Passwort vergessen
-        </a>
-      </div>
     </main>
   )
 }
