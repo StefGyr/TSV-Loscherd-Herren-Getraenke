@@ -172,32 +172,35 @@ export default function ProfilePage() {
   }
 
   const recordPayment = async (amount: number, method: 'bar' | 'paypal') => {
-    const { error } = await supabase.from('payments').insert([
-      {
-        user_id: user.id,
-        amount_cents: Math.round(amount * 100),
-        method,
-        verified: false,
-      },
-    ])
+  if (!profile) return addToast('Profil konnte nicht geladen werden', 'error')
 
-    if (error) return addToast('Fehler beim Melden der Zahlung', 'error')
+  const { error } = await supabase.from('payments').insert([
+    {
+      user_id: profile.id,   // ✅ jetzt die Profil-ID, nicht die Auth-ID
+      amount_cents: Math.round(amount * 100),
+      method,
+      verified: false,
+    },
+  ])
 
-    addToast(
-      method === 'bar'
-        ? '💵 Barzahlung gemeldet – wird nach Admin-Freigabe wirksam.'
-        : '💳 Zahlung gemeldet – wird nach Admin-Freigabe wirksam.',
-      'success'
-    )
-    setPopup(null)
-    setExtraPopup(null)
-    fetchData(user.id)
+  if (error) return addToast('Fehler beim Melden der Zahlung', 'error')
 
-    if (method === 'paypal') {
-      const redirect = `https://paypal.me/StefGyr/${amount}`
-      window.open(redirect, '_blank')
-    }
+  addToast(
+    method === 'bar'
+      ? '💵 Barzahlung gemeldet – wird nach Admin-Freigabe wirksam.'
+      : '💳 Zahlung gemeldet – wird nach Admin-Freigabe wirksam.',
+    'success'
+  )
+  setPopup(null)
+  setExtraPopup(null)
+  fetchData(user.id)
+
+  if (method === 'paypal') {
+    const redirect = `https://paypal.me/StefGyr/${amount}`
+    window.open(redirect, '_blank')
   }
+}
+
 
   const handleExtraChoice = (choice: 'credit' | 'tip') => {
     if (!extraPopup) return
