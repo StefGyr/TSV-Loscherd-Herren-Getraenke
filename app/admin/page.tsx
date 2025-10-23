@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import TopNav from '@/components/TopNav'
+import AdminNav from '@/components/AdminNav'
+
 import { supabase } from '@/lib/supabase-browser'
 
 type PopupData = {
@@ -188,8 +190,12 @@ export default function AdminPage() {
   return (
     <>
       <TopNav />
+      <AdminNav />
       <div className="pt-20 max-w-6xl mx-auto p-4 text-white space-y-10">
         <h1 className="text-2xl font-bold">Admin-Übersicht</h1>
+
+      
+
 
         {/* 💳 Offene Zahlungen */}
         <section className="bg-gray-800/70 p-4 rounded border border-gray-700 space-y-6">
