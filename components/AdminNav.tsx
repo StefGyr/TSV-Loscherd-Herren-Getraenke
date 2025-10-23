@@ -8,6 +8,7 @@ const navItems = [
   { href: '/admin/inventory', label: 'Bestand & Einnahmen' },
   { href: '/admin/purchases', label: 'Kistenhistorie' },
   { href: '/admin/stats', label: 'Statistik' },
+  { href: '/admin/platzbelegung', label: 'Platzbelegung' },
 
 ]
 
