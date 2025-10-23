@@ -142,6 +142,9 @@ export default function AdminPage() {
         .eq('id', payment.user_id)
         .single()
 
+        console.log('💡 Verifiziere:', payment.user_id, '→ Profil:', freshProfile)
+
+
       if (profError || !freshProfile) {
         addToast('Profil konnte nicht geladen werden', 'error')
         return
