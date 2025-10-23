@@ -251,62 +251,99 @@ export default function TerminalPage() {
     setToast(`🥶 Kiste ${drink.name} verbucht (${euro(price)})`)
   }
 
-  // --- Buchung ---
-  const confirmSinglesBooking = async (free: boolean) => {
-    if (!user) return
-    if (drinks.every((d) => d.qty === 0)) return setToast('❌ Bitte Getränk wählen!')
+// --- Smarte Freibier-Logik (Terminal & Home identisch) ---
+const confirmSinglesBooking = async (free: boolean) => {
+  if (!user) return
+  if (drinks.every((d) => d.qty === 0)) return setToast('❌ Bitte Getränk wählen!')
 
-    for (const d of drinks.filter((x) => x.qty > 0)) {
-      let useFree = false
-      let price = d.price_cents
+  let toastParts: string[] = []
 
-      if (free) {
-        const { data: crates } = await supabase
+  for (const d of drinks.filter((x) => x.qty > 0)) {
+    let freeQty = 0
+    let paidQty = 0
+    const now = new Date().toISOString()
+
+    if (free) {
+      // Freibier prüfen
+      const { data: crates } = await supabase
+        .from('crates')
+        .select('id, quantity_remaining')
+        .eq('drink_id', d.id)
+        .eq('is_free', true)
+        .gt('quantity_remaining', 0)
+        .order('created_at', { ascending: true })
+        .limit(1)
+
+      if (crates && crates.length > 0) {
+        const crate = crates[0]
+        freeQty = Math.min(crate.quantity_remaining, d.qty)
+        paidQty = d.qty - freeQty
+
+        // Freibierbestand reduzieren
+        await supabase
           .from('crates')
-          .select('id, quantity_remaining')
-          .eq('drink_id', d.id)
-          .eq('is_free', true)
-          .gt('quantity_remaining', 0)
-          .limit(1)
-
-        if (crates && crates.length > 0) {
-          const crate = crates[0]
-          useFree = true
-          price = 0
-          await supabase
-            .from('crates')
-            .update({ quantity_remaining: Math.max(0, crate.quantity_remaining - d.qty) })
-            .eq('id', crate.id)
-        }
+          .update({ quantity_remaining: Math.max(0, crate.quantity_remaining - freeQty) })
+          .eq('id', crate.id)
+      } else {
+        paidQty = d.qty
+        setToast(`⚠️ Kein Freibier mehr für ${d.name} verfügbar`)
       }
+    } else {
+      paidQty = d.qty
+    }
 
+    // ✅ Freibierteil (0 €)
+    if (freeQty > 0) {
       await supabase.from('consumptions').insert({
         user_id: user.id,
         drink_id: d.id,
-        quantity: d.qty,
-        source: useFree ? 'crate' : 'single',
-        unit_price_cents: price,
+        quantity: freeQty,
+        source: 'crate',
+        unit_price_cents: 0,
         via_terminal: true,
-        created_at: new Date().toISOString(),
+        created_at: now,
       })
-
-      if (!useFree) {
-        const delta = d.qty * price
-        const { data: upd } = await supabase
-          .from('profiles')
-          .update({ open_balance_cents: user.open_balance_cents + delta })
-          .eq('id', user.id)
-          .select('open_balance_cents')
-          .single()
-        if (upd) setUser({ ...user, open_balance_cents: upd.open_balance_cents })
-      }
     }
 
-    setDrinks((d) => d.map((x) => ({ ...x, qty: 0 })))
-    await loadMyWeekStats(user.id)
-    setToast(free ? '🎉 Freibier verbucht!' : '💰 Getränke bezahlt!')
-    setTimeout(() => handleLogout(), 2000)
+    // ✅ Bezahlter Teil
+    if (paidQty > 0) {
+      const totalCents = paidQty * d.price_cents
+      await supabase.from('consumptions').insert({
+        user_id: user.id,
+        drink_id: d.id,
+        quantity: paidQty,
+        source: 'single',
+        unit_price_cents: d.price_cents,
+        via_terminal: true,
+        created_at: now,
+      })
+      const { data: upd } = await supabase
+        .from('profiles')
+        .update({ open_balance_cents: user.open_balance_cents + totalCents })
+        .eq('id', user.id)
+        .select('open_balance_cents')
+        .single()
+      if (upd) setUser({ ...user, open_balance_cents: upd.open_balance_cents })
+    }
+
+    // 🧾 Toast-Text pro Getränk
+    if (freeQty > 0 && paidQty > 0) {
+      toastParts.push(`${d.name}: 🎉 ${freeQty}x + 💰 ${paidQty}x`)
+    } else if (freeQty > 0) {
+      toastParts.push(`${d.name}: 🎉 ${freeQty}x Freibier`)
+    } else if (paidQty > 0) {
+      toastParts.push(`${d.name}: 💰 ${paidQty}x bezahlt`)
+    }
   }
+
+  // 🔁 UI-Reset & Feedback
+  setDrinks((d) => d.map((x) => ({ ...x, qty: 0 })))
+  await loadMyWeekStats(user.id)
+  setToast(toastParts.length ? toastParts.join(' | ') : '✅ Buchung abgeschlossen')
+  setTimeout(() => handleLogout(), 2500)
+}
+
+
 
   const openBookingPopup = async () => {
     if (!user) return setToast('⚠️ Kein Nutzer eingeloggt!')

@@ -165,94 +165,57 @@ export default function HomePage() {
     await fetchFreeCrates()
   }
 
-// --- Smarte Freibier-Logik mit kombinierter Toastmeldung ---
-const finalizeFreeDecision = async (takeFree: boolean) => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !freeChoiceDrink) return
+  const finalizeFreeDecision = async (takeFree: boolean) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user || !freeChoiceDrink) return
 
-  const now = new Date().toISOString()
-  let freeQty = 0
-  let paidQty = 0
-  let toastText = ''
-
-  if (takeFree) {
-    // Freibier prüfen
-    const { data: crate } = await supabase
-      .from('crates')
-      .select('id, quantity_remaining')
-      .eq('drink_id', freeChoiceDrink.id)
-      .eq('is_free', true)
-      .gt('quantity_remaining', 0)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (crate && crate.length > 0) {
-      const available = crate[0].quantity_remaining
-      freeQty = Math.min(available, pendingQty)
-      paidQty = pendingQty - freeQty
-
-      // Freibierbestand reduzieren
-      await supabase
+    if (takeFree) {
+      const { data: crate } = await supabase
         .from('crates')
-        .update({ quantity_remaining: Math.max(0, available - freeQty) })
-        .eq('id', crate[0].id)
+        .select('id, quantity_remaining')
+        .eq('drink_id', freeChoiceDrink.id)
+        .eq('is_free', true)
+        .gt('quantity_remaining', 0)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (crate && crate.length > 0) {
+        const useQty = Math.min(crate[0].quantity_remaining, pendingQty)
+        await supabase.from('consumptions').insert({
+          user_id: user.id,
+          drink_id: freeChoiceDrink.id,
+          quantity: useQty,
+          unit_price_cents: 0,
+          source: 'crate',
+          crate_id: crate[0].id,
+          created_at: new Date().toISOString(),
+        })
+        await supabase
+          .from('crates')
+          .update({ quantity_remaining: Math.max(0, crate[0].quantity_remaining - useQty) })
+          .eq('id', crate[0].id)
+        addToast(`🎉 ${useQty}× ${freeChoiceDrink.name} als Freibier verbucht`)
+      }
     } else {
-      addToast(`⚠️ Kein Freibier mehr für ${freeChoiceDrink.name} verfügbar`, 'error')
-      paidQty = pendingQty
+      const totalCents = freeChoiceDrink.price_cents * pendingQty
+      await supabase.from('consumptions').insert({
+        user_id: user.id,
+        drink_id: freeChoiceDrink.id,
+        quantity: pendingQty,
+        unit_price_cents: freeChoiceDrink.price_cents,
+        source: 'single',
+        created_at: new Date().toISOString(),
+      })
+      await supabase.rpc('increment_balance', { user_id: user.id, amount: totalCents })
+      addToast(`💰 ${pendingQty}× ${freeChoiceDrink.name} bezahlt verbucht`)
     }
-  } else {
-    paidQty = pendingQty
+
+    setFreeChoiceDrink(null)
+    setPendingQty(0)
+    setQuantity(1)
+    setSelectedDrink(null)
+    await loadStats()
+    await fetchFreeCrates()
   }
-
-  // ✅ Freibierteil eintragen
-  if (freeQty > 0) {
-    await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: freeChoiceDrink.id,
-      quantity: freeQty,
-      unit_price_cents: 0,
-      source: 'crate',
-      created_at: now,
-    })
-  }
-
-  // ✅ Bezahlten Teil eintragen
-  if (paidQty > 0) {
-    const totalCents = freeChoiceDrink.price_cents * paidQty
-    await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: freeChoiceDrink.id,
-      quantity: paidQty,
-      unit_price_cents: freeChoiceDrink.price_cents,
-      source: 'single',
-      created_at: now,
-    })
-    await supabase.rpc('increment_balance', { user_id: user.id, amount: totalCents })
-  }
-
-  // 💬 Dynamische Zusammenfassung
-  if (freeQty > 0 && paidQty > 0) {
-    toastText = `🎉 ${freeQty}× Freibier + 💰 ${paidQty}× bezahlt (${freeChoiceDrink.name})`
-  } else if (freeQty > 0) {
-    toastText = `🎉 ${freeQty}× ${freeChoiceDrink.name} als Freibier verbucht`
-  } else if (paidQty > 0) {
-    toastText = `💰 ${paidQty}× ${freeChoiceDrink.name} bezahlt verbucht`
-  } else {
-    toastText = `⚠️ Keine Buchung durchgeführt`
-  }
-
-  addToast(toastText)
-
-  // 🔁 Reset & Refresh
-  setFreeChoiceDrink(null)
-  setPendingQty(0)
-  setQuantity(1)
-  setSelectedDrink(null)
-  await loadStats()
-  await fetchFreeCrates()
-}
-
-
 
   // Kiste bereitstellen
   const openCratePopup = (type: 'paid' | 'own') => {
