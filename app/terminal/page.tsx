@@ -62,35 +62,50 @@ export default function TerminalPage() {
 
   // --- Platzbelegung (für PIN-Seite) ---
   useEffect(() => {
-    const loadPlatzbelegung = async () => {
-      const start = startOfWeekMonday()
-      const end = new Date(start)
-      end.setDate(start.getDate() + 7)
-      end.setHours(23, 59, 59, 999)
+  const loadPlatzbelegung = async () => {
+    const start = startOfWeekMonday()
+    const end = new Date(start)
+    end.setDate(start.getDate() + 7)
+    end.setHours(23, 59, 59, 999)
 
-      const { data, error } = await supabase
-        .from('platzbelegung')
-        .select('*')
-        .gte('date', start.toISOString().split('T')[0])
-        .lte('date', end.toISOString().split('T')[0])
-        .order('date', { ascending: true })
+    const { data, error } = await supabase
+      .from('platzbelegung')
+      .select('id, date, time, team_home, team_guest, competition, section, field, location')
+      .gte('date', start.toISOString().split('T')[0])
+      .lte('date', end.toISOString().split('T')[0])
+      .order('date', { ascending: true })
 
-      if (error) return console.error('Fehler beim Laden:', error)
+    if (error) return console.error('Fehler beim Laden der Platzbelegung:', error)
 
-      const grouped: Record<string, any[]> = {}
-      for (const e of data ?? []) {
-        const label = `${new Date(e.date).toLocaleDateString('de-DE', {
-          weekday: 'short',
-          day: '2-digit',
-          month: '2-digit',
-        })}`
-        if (!grouped[label]) grouped[label] = []
-        grouped[label].push(e)
-      }
-      setGroupedByDay(grouped)
+    const grouped: Record<string, any[]> = {}
+
+    for (const e of data ?? []) {
+      const label = new Date(e.date).toLocaleDateString('de-DE', {
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit',
+      })
+
+      if (!grouped[label]) grouped[label] = []
+
+      grouped[label].push({
+        id: e.id,
+        date: e.date,
+        time: e.time,
+        field: e.field,
+        location: e.location,
+        match: `${e.team_home ?? ''} ${e.team_guest ?? ''}`.trim(),
+        competition: e.competition,
+        section: e.section,
+      })
     }
-    loadPlatzbelegung()
-  }, [])
+
+    setGroupedByDay(grouped)
+  }
+
+  loadPlatzbelegung()
+}, [])
+
 
   // --- Drinks laden ---
   useEffect(() => {
@@ -213,43 +228,60 @@ export default function TerminalPage() {
     setFreeCrates(count || 0)
   }
 
-  // --- 🧊 Kiste ausgeben (Dropdown-Logik, verbucht crate_price_cents) ---
-  const handleCrateWithdraw = async (selectedDrinkId: number) => {
-    if (!user) return setToast('⚠️ Kein Nutzer eingeloggt!')
+// --- 🧊 Kiste ausgeben (mit Info-Popup und Preisangabe) ---
+const handleCrateWithdraw = async (selectedDrinkId: number) => {
+  if (!user) return setToast('⚠️ Kein Nutzer eingeloggt!')
 
-    const drink = drinks.find((d) => d.id === selectedDrinkId)
-    if (!drink) return setToast('❌ Getränk nicht gefunden')
+  const drink = drinks.find((d) => d.id === selectedDrinkId)
+  if (!drink) return setToast('❌ Getränk nicht gefunden')
 
-    const price = drink.crate_price_cents || 0
-    const now = new Date().toISOString()
+  const price = drink.crate_price_cents || 0
+  const priceEuro = euro(price)
 
-    const { error: insertError } = await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: drink.id,
-      quantity: BOTTLES_PER_CRATE,
-      source: 'crate',
-      unit_price_cents: price / BOTTLES_PER_CRATE,
-      via_terminal: true,
-      created_at: now,
-    })
+  // 👉 Popup vor der eigentlichen Buchung anzeigen
+  setPopup({
+    title: `Kiste ${drink.name}`,
+    message:
+      `⚠️ Diese Kiste geht auf deinen Nacken!\n\n` +
+      `Sie erscheint **nicht als Freibier** und wird dir komplett berechnet.\n` +
+      `💶 Preis: ${priceEuro}\n\n` +
+      `🍺 Gedacht z. B. für eine Kiste Bier nach dem Spiel in der Kabine.`,
+    onConfirm: async () => {
+      const now = new Date().toISOString()
 
-    if (insertError) {
-      console.error(insertError)
-      return setToast('❌ Fehler beim Verbuchen der Kiste')
-    }
+      // Verbrauch als Buchung eintragen
+      const { error: insertError } = await supabase.from('consumptions').insert({
+        user_id: user.id,
+        drink_id: drink.id,
+        quantity: BOTTLES_PER_CRATE,
+        source: 'crate',
+        unit_price_cents: price / BOTTLES_PER_CRATE,
+        via_terminal: true,
+        created_at: now,
+      })
 
-    const delta = price
-    const { data: upd } = await supabase
-      .from('profiles')
-      .update({ open_balance_cents: user.open_balance_cents + delta })
-      .eq('id', user.id)
-      .select('open_balance_cents')
-      .single()
+      if (insertError) {
+        console.error(insertError)
+        return setToast('❌ Fehler beim Verbuchen der Kiste')
+      }
 
-    if (upd) setUser({ ...user, open_balance_cents: upd.open_balance_cents })
+      // Kontostand aktualisieren
+      const delta = price
+      const { data: upd } = await supabase
+        .from('profiles')
+        .update({ open_balance_cents: user.open_balance_cents + delta })
+        .eq('id', user.id)
+        .select('open_balance_cents')
+        .single()
 
-    setToast(`🥶 Kiste ${drink.name} verbucht (${euro(price)})`)
-  }
+      if (upd) setUser({ ...user, open_balance_cents: upd.open_balance_cents })
+
+      setToast(`🍻 Kiste ${drink.name} verbucht (${priceEuro})`)
+      setSelectedCrateDrink(0)
+    },
+  })
+}
+
 
 // --- Smarte Freibier-Logik (Terminal & Home identisch) ---
 const confirmSinglesBooking = async (free: boolean) => {
@@ -382,31 +414,103 @@ const confirmSinglesBooking = async (free: boolean) => {
       <div className="pt-14 px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6 h-[calc(100vh-3.5rem)]">
         {/* Links */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-8 overflow-y-auto">
-          {step === 'pin' ? (
-            <div className="w-full max-w-xs mx-auto text-center">
-              <h1 className="text-3xl font-semibold mb-8">🔒 PIN-Eingabe</h1>
-              <div className="flex justify-center gap-3 mb-8">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`w-5 h-5 rounded-full border-2 ${i < pin.length ? 'bg-white' : 'border-neutral-600'}`}
-                  />
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                {[1,2,3,4,5,6,7,8,9].map(n => (
-                  <button key={n} onClick={() => setPin(p => (p + n).slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
-                ))}
-                <div />
-                <button onClick={() => setPin(p => (p + '0').slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
-                <div />
-              </div>
-              <div className="flex justify-center gap-4">
-                <button onClick={() => setPin(p => p.slice(0,-1))} className="px-5 py-2 bg-neutral-800 rounded-lg">Löschen</button>
-                <button onClick={handleLogin} className="px-7 py-2 bg-green-600 hover:bg-green-700 rounded-lg">Bestätigen</button>
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+  {/* 🔒 PIN-Eingabe */}
+  <div className="w-full max-w-xs mx-auto text-center">
+    <h1 className="text-3xl font-semibold mb-8">🔒 PIN-Eingabe</h1>
+    <div className="flex justify-center gap-3 mb-8">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className={`w-5 h-5 rounded-full border-2 ${
+            i < pin.length ? 'bg-white' : 'border-neutral-600'
+          }`}
+        />
+      ))}
+    </div>
+    <div className="grid grid-cols-3 gap-4 mb-6">
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+        <button
+          key={n}
+          onClick={() => setPin((p) => (p + n).slice(0, 6))}
+          className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl"
+        >
+          {n}
+        </button>
+      ))}
+      <div />
+      <button
+        onClick={() => setPin((p) => (p + '0').slice(0, 6))}
+        className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl"
+      >
+        0
+      </button>
+      <div />
+    </div>
+    <div className="flex justify-center gap-4">
+      <button
+        onClick={() => setPin((p) => p.slice(0, -1))}
+        className="px-5 py-2 bg-neutral-800 rounded-lg"
+      >
+        Löschen
+      </button>
+      <button
+        onClick={handleLogin}
+        className="px-7 py-2 bg-green-600 hover:bg-green-700 rounded-lg"
+      >
+        Bestätigen
+      </button>
+    </div>
+  </div>
+
+  {/* 📅 Platzbelegung rechts */}
+  <div className="overflow-y-auto max-h-[75vh] p-2">
+    <h2 className="text-xl font-semibold mb-3 text-center">
+      📅 Platzbelegung dieser Woche
+    </h2>
+
+    {Object.keys(groupedByDay).length === 0 ? (
+      <p className="text-neutral-500 text-center text-sm">
+        Keine Belegung für diese Woche gefunden.
+      </p>
+    ) : (
+      <div className="space-y-4">
+        {Object.entries(groupedByDay).map(([day, entries]) => (
+          <div key={day} className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-3">
+            <div className="text-lg font-semibold text-white mb-2">{day}</div>
+            <div className="space-y-2">
+              {entries.map((e: any) => (
+                <div
+                  key={e.id}
+                  className="border border-neutral-800 bg-neutral-950/50 rounded-lg p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl font-bold text-green-400">
+                      Platz {e.field}
+                    </span>
+                    <span className="text-sm text-neutral-400">{e.time} Uhr</span>
+                  </div>
+                  <div className="mt-1 text-sm text-neutral-200 font-medium">
+                    {e.match}
+                  </div>
+                  <div className="text-xs text-neutral-400">
+                    {e.competition} • {e.section}
+                  </div>
+                  {e.location && (
+                    <div className="text-xs text-neutral-500 mt-1">
+                      📍 {e.location}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ) : (
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+</div>
+
             <div className="space-y-4">
               {loadingInfo ? (
                 <p className="text-neutral-500 text-center">⏳ Daten werden geladen...</p>
@@ -417,11 +521,11 @@ const confirmSinglesBooking = async (free: boolean) => {
                   <InfoCard icon="💶" label="Letzte Zahlung" value={lastPayment ? `${lastPayment.amount.toFixed(2)} € am ${lastPayment.date}` : '—'} />
                   <InfoCard icon="⭐" label="Lieblingsgetränk" value={favoriteDrink || '—'} />
                   <InfoCard icon="🎁" label="Freibierkisten" value={`${freeCrates}`} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+      </div>
+    )}
+  </div>
+</div>
+
 
         {/* Rechts */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-6 overflow-y-auto">
