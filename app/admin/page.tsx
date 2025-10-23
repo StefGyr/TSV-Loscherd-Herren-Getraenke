@@ -133,16 +133,27 @@ export default function AdminPage() {
           .eq('id', payment.id)
         if (error) return addToast('Fehler beim Verifizieren', 'error')
 
-        const prof = profiles.find((p) => p.id === payment.user_id)
-        if (prof) {
-          const newBalance = (prof.open_balance_cents || 0) - payment.amount_cents
-          const { error: err2 } = await supabase
-            .from('profiles')
-            .update({ open_balance_cents: newBalance })
-            .eq('id', prof.id)
-          if (err2) addToast('Fehler beim Aktualisieren des Kontostands', 'error')
-          else addToast('Zahlung erfolgreich verifiziert ✅', 'success')
-        }
+        // 🔹 Profil frisch aus der DB holen, nicht aus dem lokalen Cache
+const { data: freshProfile, error: profErr } = await supabase
+  .from('profiles')
+  .select('id, open_balance_cents, first_name, last_name')
+  .eq('id', payment.user_id)
+  .single()
+
+if (profErr || !freshProfile) {
+  addToast('Profil konnte nicht geladen werden', 'error')
+} else {
+  const newBalance = (freshProfile.open_balance_cents || 0) - payment.amount_cents
+  const { error: err2 } = await supabase
+    .from('profiles')
+    .update({ open_balance_cents: newBalance })
+    .eq('id', freshProfile.id)
+
+  if (err2) addToast('Fehler beim Aktualisieren des Kontostands', 'error')
+  else addToast('Zahlung erfolgreich verifiziert ✅', 'success')
+}
+
+
 
         fetchData()
       },
