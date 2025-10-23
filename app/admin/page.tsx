@@ -121,44 +121,52 @@ export default function AdminPage() {
 
   // 🔹 Zahlung verifizieren
   const handleVerifyPayment = (payment: any) => {
-    setPopup({
-      title: 'Zahlung verifizieren',
-      message: `Zahlung über ${(payment.amount_cents / 100).toFixed(
-        2
-      )} € von ${payment.profiles?.first_name ?? ''} ${payment.profiles?.last_name ?? ''} wirklich verifizieren?`,
-      onConfirm: async () => {
-        const { error } = await supabase
-          .from('payments')
-          .update({ verified: true })
-          .eq('id', payment.id)
-        if (error) return addToast('Fehler beim Verifizieren', 'error')
+  setPopup({
+    title: 'Zahlung verifizieren',
+    message: `Zahlung über ${(payment.amount_cents / 100).toFixed(
+      2
+    )} € von ${payment.profiles?.first_name ?? ''} ${payment.profiles?.last_name ?? ''} wirklich verifizieren?`,
+    onConfirm: async () => {
+      // 1️⃣ Zahlung auf verified setzen
+      const { error: updateError } = await supabase
+        .from('payments')
+        .update({ verified: true })
+        .eq('id', payment.id)
 
-        // 🔹 Profil frisch aus der DB holen, nicht aus dem lokalen Cache
-const { data: freshProfile, error: profErr } = await supabase
-  .from('profiles')
-  .select('id, open_balance_cents, first_name, last_name')
-  .eq('id', payment.user_id)
-  .single()
+      if (updateError) return addToast('Fehler beim Verifizieren', 'error')
 
-if (profErr || !freshProfile) {
-  addToast('Profil konnte nicht geladen werden', 'error')
-} else {
-  const newBalance = (freshProfile.open_balance_cents || 0) - payment.amount_cents
-  const { error: err2 } = await supabase
-    .from('profiles')
-    .update({ open_balance_cents: newBalance })
-    .eq('id', freshProfile.id)
+      // 2️⃣ Profil direkt aus DB holen
+      const { data: freshProfile, error: profError } = await supabase
+        .from('profiles')
+        .select('id, open_balance_cents')
+        .eq('id', payment.user_id)
+        .single()
 
-  if (err2) addToast('Fehler beim Aktualisieren des Kontostands', 'error')
-  else addToast('Zahlung erfolgreich verifiziert ✅', 'success')
+      if (profError || !freshProfile) {
+        addToast('Profil konnte nicht geladen werden', 'error')
+        return
+      }
+
+      // 3️⃣ Kontostand neu berechnen
+      const newBalance = (freshProfile.open_balance_cents || 0) - payment.amount_cents
+
+      const { error: balanceError } = await supabase
+        .from('profiles')
+        .update({ open_balance_cents: newBalance })
+        .eq('id', freshProfile.id)
+
+      if (balanceError) {
+        addToast('Fehler beim Aktualisieren des Kontostands', 'error')
+      } else {
+        addToast('Zahlung erfolgreich verifiziert ✅', 'success')
+      }
+
+      // 4️⃣ Daten neu laden
+      fetchData()
+    },
+  })
 }
 
-
-
-        fetchData()
-      },
-    })
-  }
 
   // 🔹 Zahlung ablehnen / löschen
   const handleRejectPayment = (paymentId: string) => {
