@@ -29,16 +29,15 @@ export default function TerminalPage() {
   const [user, setUser] = useState<Profile | null>(null)
   const [drinks, setDrinks] = useState<(Drink & { qty: number })[]>([])
   const [myWeekTotal, setMyWeekTotal] = useState(0)
+  const [favoriteDrink, setFavoriteDrink] = useState<string | null>(null)
+  const [lastPayment, setLastPayment] = useState<{ date: string; amount: number } | null>(null)
+  const [freeCrates, setFreeCrates] = useState<number>(0)
   const [toast, setToast] = useState<string | null>(null)
-  const [popup, setPopup] = useState<{
-    title: string
-    message: string
-    onConfirm?: () => void
-    freeConfirm?: () => void
-  } | null>(null)
+  const [popup, setPopup] = useState<any>(null)
   const [groupedByDay, setGroupedByDay] = useState<Record<string, any[]>>({})
   const [time, setTime] = useState('')
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [loadingInfo, setLoadingInfo] = useState(true)
 
   // --- Uhrzeit ---
   useEffect(() => {
@@ -61,7 +60,7 @@ export default function TerminalPage() {
     return res
   }
 
-  // --- Platzbelegung laden (für PIN-Screen rechts) ---
+  // --- Platzbelegung (nur vor Login) ---
   useEffect(() => {
     const loadPlatzbelegung = async () => {
       const start = startOfWeekMonday()
@@ -76,10 +75,7 @@ export default function TerminalPage() {
         .lte('date', end.toISOString())
         .order('date', { ascending: true })
 
-      if (error) {
-        console.error('Fehler beim Laden:', error)
-        return
-      }
+      if (error) return console.error('Fehler beim Laden:', error)
 
       const grouped: Record<string, any[]> = {}
       for (const e of data ?? []) {
@@ -104,23 +100,6 @@ export default function TerminalPage() {
     }
     loadDrinks()
   }, [])
-
-  // --- Wochenverbrauch des Users laden ---
-  const loadMyWeekStats = async (uid: string) => {
-    const from = startOfWeekMonday()
-    const { data, error } = await supabase
-      .from('consumptions')
-      .select('quantity')
-      .eq('user_id', uid)
-      .gte('created_at', from.toISOString())
-
-    if (error) {
-      console.error('Fehler Verbrauch:', error)
-      return
-    }
-    const total = (data ?? []).reduce((s, r: any) => s + (r.quantity || 0), 0)
-    setMyWeekTotal(total)
-  }
 
   // --- Login ---
   const handleLogin = async () => {
@@ -148,17 +127,23 @@ export default function TerminalPage() {
     setUser(u)
     setPin('')
     setStep('overview')
-    await loadMyWeekStats(u.id)
+    await Promise.all([
+      loadMyWeekStats(u.id),
+      loadFavoriteDrink(u.id),
+      loadLastPayment(u.id),
+      loadFreeCrates(),
+    ])
+    setLoadingInfo(false)
   }
 
-  // --- Logout + Auto-Reset ---
+  // --- Logout ---
   const handleLogout = () => {
     setUser(null)
     setDrinks((d) => d.map((x) => ({ ...x, qty: 0 })))
     setStep('pin')
   }
 
-  // --- Auto-Logout (nur in overview) ---
+  // --- Auto-Logout ---
   const resetTimer = () => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     inactivityTimer.current = setTimeout(() => handleLogout(), 60000)
@@ -175,7 +160,81 @@ export default function TerminalPage() {
     }
   }, [step])
 
-  // --- Verbuchung (Singles, mit Freibier-Logik) ---
+  // --- Datenabfragen ---
+  const loadMyWeekStats = async (uid: string) => {
+    const from = startOfWeekMonday()
+    const { data } = await supabase
+      .from('consumptions')
+      .select('quantity')
+      .eq('user_id', uid)
+      .gte('created_at', from.toISOString())
+    setMyWeekTotal((data ?? []).reduce((s, r) => s + (r.quantity || 0), 0))
+  }
+
+  const loadFavoriteDrink = async (uid: string) => {
+    const { data } = await supabase
+      .from('consumptions')
+      .select('quantity, drinks(name)')
+      .eq('user_id', uid)
+    if (!data?.length) return setFavoriteDrink('—')
+    const count: Record<string, number> = {}
+    for (const r of data) {
+      const name =
+        (Array.isArray(r.drinks)
+          ? r.drinks[0]?.name
+          : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
+      count[name] = (count[name] || 0) + (r.quantity || 0)
+    }
+    const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
+    setFavoriteDrink(fav ? fav[0] : '—')
+  }
+
+  const loadLastPayment = async (uid: string) => {
+    const { data } = await supabase
+      .from('payments')
+      .select('amount_cents, created_at')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (data)
+      setLastPayment({
+        date: new Date(data.created_at).toLocaleDateString('de-DE'),
+        amount: data.amount_cents / 100,
+      })
+  }
+
+  const loadFreeCrates = async () => {
+    const { count } = await supabase
+      .from('crates')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_free', true)
+      .gt('quantity_remaining', 0)
+    setFreeCrates(count || 0)
+  }
+
+  // --- Kiste ausgeben (nicht Freibier, keine Buchung) ---
+  const handleCrateWithdraw = async () => {
+    const { data } = await supabase
+      .from('crates')
+      .select('id, quantity_remaining')
+      .eq('is_free', false)
+      .gt('quantity_remaining', 0)
+      .limit(1)
+
+    if (!data?.length) return setToast('❌ Keine Kisten verfügbar')
+    const crate = data[0]
+
+    await supabase
+      .from('crates')
+      .update({ quantity_remaining: crate.quantity_remaining - 20 })
+      .eq('id', crate.id)
+
+    setToast('🥶 Kiste ausgegeben (nicht verbucht)')
+    await loadFreeCrates()
+  }
+
+  // --- Verbuchung ---
   const confirmSinglesBooking = async (free: boolean) => {
     if (!user) return
     if (drinks.every((d) => d.qty === 0)) return setToast('❌ Bitte Getränk wählen!')
@@ -197,7 +256,6 @@ export default function TerminalPage() {
           const crate = crates[0]
           useFree = true
           price = 0
-
           await supabase
             .from('crates')
             .update({ quantity_remaining: Math.max(0, crate.quantity_remaining - d.qty) })
@@ -229,19 +287,16 @@ export default function TerminalPage() {
 
     setDrinks((d) => d.map((x) => ({ ...x, qty: 0 })))
     await loadMyWeekStats(user.id)
-    setToast(free ? '🎉 Freibier (falls verfügbar) verbucht!' : '💰 Getränke bezahlt!')
+    setToast(free ? '🎉 Freibier verbucht!' : '💰 Getränke bezahlt!')
     setTimeout(() => handleLogout(), 2000)
   }
 
-  // --- Popup öffnen (zeigt, ob Freibier verfügbar) ---
   const openBookingPopup = async () => {
     if (!user) return setToast('⚠️ Kein Nutzer eingeloggt!')
     if (drinks.every((d) => d.qty === 0)) return setToast('❌ Bitte Getränk wählen!')
-
     const total = drinks.reduce((sum, d) => sum + d.qty * d.price_cents, 0)
     const selectedDrinks = drinks.filter((x) => x.qty > 0)
 
-    // Prüfen, ob irgendwo Freibier verfügbar ist
     let freeAvailable = false
     for (const d of selectedDrinks) {
       const { data: crates } = await supabase
@@ -251,18 +306,12 @@ export default function TerminalPage() {
         .eq('is_free', true)
         .gt('quantity_remaining', 0)
         .limit(1)
-
-      if (crates && crates.length > 0) {
-        freeAvailable = true
-        break
-      }
+      if (crates && crates.length > 0) freeAvailable = true
     }
 
     setPopup({
       title: 'Buchung bestätigen',
-      message: `Du hast ${selectedDrinks
-        .map((x) => `${x.qty}× ${x.name}`)
-        .join(', ')} im Wert von ${euro(total)}.\n\nWie möchtest du verbuchen?`,
+      message: `Du hast ${selectedDrinks.map((x) => `${x.qty}× ${x.name}`).join(', ')} im Wert von ${euro(total)}.\n\nWie möchtest du verbuchen?`,
       onConfirm: () => confirmSinglesBooking(false),
       freeConfirm: freeAvailable ? () => confirmSinglesBooking(true) : undefined,
     })
@@ -271,173 +320,86 @@ export default function TerminalPage() {
   // --- UI ---
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white">
-      {/* Header */}
       <header className="fixed top-0 left-0 w-full bg-neutral-950/80 backdrop-blur border-b border-neutral-800 text-neutral-400 text-sm py-2 px-4 flex justify-between items-center z-40">
         <span>🕒 {time}</span>
         <span>TSV Lonnerstadt • Herren-Terminal</span>
       </header>
 
-      {/* Inhalt */}
       <div className="pt-14 px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6 h-[calc(100vh-3.5rem)]">
-        {/* Links – PIN */}
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-8 flex flex-col items-center justify-center overflow-hidden">
-          {step === 'pin' && (
-            <div className="w-full max-w-xs text-center">
-              <h1 className="text-3xl font-semibold mb-8 text-white">🔒 PIN-Eingabe</h1>
+        {/* Linke Seite */}
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-8 overflow-y-auto">
+          {step === 'pin' ? (
+            // PIN-Pad
+            <div className="w-full max-w-xs mx-auto text-center">
+              <h1 className="text-3xl font-semibold mb-8">🔒 PIN-Eingabe</h1>
               <div className="flex justify-center gap-3 mb-8">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-5 h-5 rounded-full border-2 ${
-                      i < pin.length ? 'bg-white border-white' : 'border-neutral-600'
-                    }`}
+                    className={`w-5 h-5 rounded-full border-2 ${i < pin.length ? 'bg-white' : 'border-neutral-600'}`}
                   />
                 ))}
               </div>
               <div className="grid grid-cols-3 gap-4 mb-6">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setPin((p) => (p + n).slice(0, 6))}
-                    className="h-16 text-2xl font-semibold bg-neutral-800 hover:bg-neutral-700 rounded-xl shadow-md transition"
-                  >
-                    {n}
-                  </button>
+                {[1,2,3,4,5,6,7,8,9].map(n => (
+                  <button key={n} onClick={() => setPin(p => (p + n).slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
                 ))}
                 <div />
-                <button
-                  onClick={() => setPin((p) => (p + '0').slice(0, 6))}
-                  className="h-16 text-2xl font-semibold bg-neutral-800 hover:bg-neutral-700 rounded-xl shadow-md transition"
-                >
-                  0
-                </button>
+                <button onClick={() => setPin(p => (p + '0').slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
                 <div />
               </div>
               <div className="flex justify-center gap-4">
-                <button
-                  onClick={() => setPin((p) => p.slice(0, -1))}
-                  className="px-5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-lg transition"
-                >
-                  Löschen
-                </button>
-                <button
-                  onClick={handleLogin}
-                  className="px-7 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-lg font-medium shadow-md transition"
-                >
-                  Bestätigen
-                </button>
+                <button onClick={() => setPin(p => p.slice(0,-1))} className="px-5 py-2 bg-neutral-800 rounded-lg">Löschen</button>
+                <button onClick={handleLogin} className="px-7 py-2 bg-green-600 hover:bg-green-700 rounded-lg">Bestätigen</button>
               </div>
+            </div>
+          ) : (
+            // Info-Karten nach Login
+            <div className="space-y-4">
+              {loadingInfo ? (
+                <p className="text-neutral-500 text-center">⏳ Daten werden geladen...</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <InfoCard icon="💰" label="Kontostand" value={euro(user?.open_balance_cents ?? 0)} />
+                  <InfoCard icon="🍺" label="Gesamtverbrauch" value={`${myWeekTotal}`} />
+                  <InfoCard icon="💶" label="Letzte Zahlung" value={lastPayment ? `${lastPayment.amount.toFixed(2)} € am ${lastPayment.date}` : '—'} />
+                  <InfoCard icon="⭐" label="Lieblingsgetränk" value={favoriteDrink || '—'} />
+                  <InfoCard icon="🎁" label="Freibierkisten" value={`${freeCrates}`} />
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Rechts – Platzbelegung (vor Login) ODER Übersicht + Getränke (nach Login) */}
+        {/* Rechte Seite */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-6 overflow-y-auto">
-          {step === 'pin' && (
+          {step === 'overview' && (
             <>
-              <h3 className="text-xl mb-4 flex items-center gap-2">⚽ Wochenübersicht Platzbelegung</h3>
-              <div className="space-y-6 pr-2">
-                {Object.entries(groupedByDay).map(([day, entries]) => (
-                  <div key={day} className="border-l-4 border-green-600 pl-4">
-                    <h4 className="text-lg font-medium text-white mb-2">{day}</h4>
-                    <div className="space-y-2">
-                      {entries.map((p, i) => (
-                        <div
-                          key={i}
-                          className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-3 text-sm flex flex-col hover:bg-neutral-800/70 transition"
-                        >
-                          <div className="flex justify-between text-neutral-300">
-                            <span className="font-semibold">{p.field ? `${p.field}-Platz` : '—'}</span>
-                            <span>{p.time || '—'}</span>
-                          </div>
-                          <div className="text-neutral-400 mt-1">
-                            {p.team_home || '—'}
-                            {p.team_guest && (
-                              <>
-                                {' '}
-                                <span className="text-neutral-500">vs.</span> {p.team_guest}
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {step === 'overview' && user && (
-            <>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">👋 Willkommen, {user.first_name}</h2>
-                <button
-                  onClick={handleLogout}
-                  className="text-sm px-4 py-2 bg-neutral-800 rounded-lg hover:bg-neutral-700 transition"
-                >
-                  Logout
-                </button>
-              </div>
-
-              {/* Persönliche Icons */}
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-center">
-                  <div className="text-2xl mb-1">🍺</div>
-                  <div className="text-sm text-neutral-400">Verbrauch (Woche)</div>
-                  <div className="text-lg font-semibold">{myWeekTotal}</div>
-                </div>
-                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-center">
-                  <div className="text-2xl mb-1">💰</div>
-                  <div className="text-sm text-neutral-400">Offener Betrag</div>
-                  <div className="text-lg font-semibold">{euro(user.open_balance_cents)}</div>
-                </div>
-              </div>
-
-              {/* Getränke mit +/- */}
+              <h2 className="text-xl font-semibold mb-4">🍻 Getränke verbuchen</h2>
               <div className="space-y-2">
-                {drinks.map((d) => (
-                  <div
-                    key={d.id}
-                    className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-3 flex justify-between items-center hover:bg-neutral-800/70 transition"
-                  >
+                {drinks.map(d => (
+                  <div key={d.id} className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-3 flex justify-between items-center">
                     <div>
                       <div className="font-medium">{d.name}</div>
                       <div className="text-xs text-neutral-500">{euro(d.price_cents)} / Stk</div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={() =>
-                          setDrinks((prev) =>
-                            prev.map((x) => (x.id === d.id ? { ...x, qty: Math.max(0, x.qty - 1) } : x))
-                          )
-                        }
-                        className="w-9 h-9 bg-neutral-800 rounded-lg text-xl"
-                      >
-                        –
-                      </button>
+                      <button onClick={() => setDrinks(prev => prev.map(x => x.id===d.id ? {...x, qty: Math.max(0,x.qty-1)} : x))} className="w-9 h-9 bg-neutral-800 rounded-lg text-xl">–</button>
                       <span className="w-6 text-center">{d.qty}</span>
-                      <button
-                        onClick={() =>
-                          setDrinks((prev) =>
-                            prev.map((x) => (x.id === d.id ? { ...x, qty: x.qty + 1 } : x))
-                          )
-                        }
-                        className="w-9 h-9 bg-neutral-800 rounded-lg text-xl"
-                      >
-                        +
-                      </button>
+                      <button onClick={() => setDrinks(prev => prev.map(x => x.id===d.id ? {...x, qty:x.qty+1} : x))} className="w-9 h-9 bg-neutral-800 rounded-lg text-xl">+</button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <button
-                onClick={openBookingPopup}
-                className="w-full h-14 rounded-2xl bg-white text-black hover:bg-gray-200 text-lg font-medium mt-6"
-              >
-                📤 Jetzt verbuchen
-              </button>
+              <div className="flex flex-col gap-3 mt-6">
+                <button onClick={openBookingPopup} className="w-full h-14 rounded-2xl bg-green-600 hover:bg-green-700 text-lg font-medium">
+                  📤 Jetzt verbuchen
+                </button>
+                <button onClick={handleCrateWithdraw} className="w-full h-14 rounded-2xl bg-blue-600 hover:bg-blue-700 text-lg font-medium">
+                  🥶 Kiste ausgeben
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -446,37 +408,14 @@ export default function TerminalPage() {
       {/* Popup */}
       <AnimatePresence>
         {popup && (
-          <motion.div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <motion.div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
             <motion.div className="bg-neutral-900/95 p-6 rounded-2xl border border-neutral-700 max-w-sm w-full text-center shadow-2xl">
               <h3 className="text-lg font-semibold mb-2">{popup.title}</h3>
               <p className="text-sm text-neutral-300 mb-6 whitespace-pre-line">{popup.message}</p>
               <div className="flex justify-center gap-4">
-                <button
-                  onClick={() => setPopup(null)}
-                  className="px-4 py-2 bg-neutral-700 rounded hover:bg-neutral-600"
-                >
-                  Abbrechen
-                </button>
-                {popup.freeConfirm && (
-                  <button
-                    onClick={() => {
-                      popup.freeConfirm?.()
-                      setPopup(null)
-                    }}
-                    className="px-4 py-2 bg-yellow-600 rounded hover:bg-yellow-700"
-                  >
-                    Freibier
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    popup.onConfirm?.()
-                    setPopup(null)
-                  }}
-                  className="px-4 py-2 bg-green-700 rounded hover:bg-green-800"
-                >
-                  Bezahlen
-                </button>
+                <button onClick={() => setPopup(null)} className="px-4 py-2 bg-neutral-700 rounded">Abbrechen</button>
+                {popup.freeConfirm && <button onClick={() => { popup.freeConfirm(); setPopup(null) }} className="px-4 py-2 bg-yellow-600 rounded">Freibier</button>}
+                <button onClick={() => { popup.onConfirm(); setPopup(null) }} className="px-4 py-2 bg-green-700 rounded">Bezahlen</button>
               </div>
             </motion.div>
           </motion.div>
@@ -486,16 +425,21 @@ export default function TerminalPage() {
       {/* Toast */}
       <AnimatePresence>
         {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-5 right-5 bg-green-700 px-4 py-2 rounded-lg shadow-lg"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="fixed bottom-5 right-5 bg-green-700 px-4 py-2 rounded-lg shadow-lg">
             {toast}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+function InfoCard({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <motion.div whileHover={{ scale: 1.03 }} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-center shadow-sm">
+      <div className="text-2xl mb-1">{icon}</div>
+      <div className="text-sm text-neutral-400">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </motion.div>
   )
 }
