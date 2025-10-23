@@ -19,7 +19,6 @@ type Profile = {
   open_balance_cents: number
 }
 
-type WeekRow = { name: string; qty: number }
 const BOTTLES_PER_CRATE = 20
 const euro = (c: number) => (c / 100).toFixed(2) + ' €'
 
@@ -28,6 +27,7 @@ export default function TerminalPage() {
   const [pin, setPin] = useState('')
   const [user, setUser] = useState<Profile | null>(null)
   const [drinks, setDrinks] = useState<(Drink & { qty: number })[]>([])
+  const [selectedCrateDrink, setSelectedCrateDrink] = useState<number>(0)
   const [myWeekTotal, setMyWeekTotal] = useState(0)
   const [favoriteDrink, setFavoriteDrink] = useState<string | null>(null)
   const [lastPayment, setLastPayment] = useState<{ date: string; amount: number } | null>(null)
@@ -60,7 +60,7 @@ export default function TerminalPage() {
     return res
   }
 
-  // --- Platzbelegung (nur vor Login) ---
+  // --- Platzbelegung (für PIN-Seite) ---
   useEffect(() => {
     const loadPlatzbelegung = async () => {
       const start = startOfWeekMonday()
@@ -71,8 +71,8 @@ export default function TerminalPage() {
       const { data, error } = await supabase
         .from('platzbelegung')
         .select('*')
-        .gte('date', start.toISOString())
-        .lte('date', end.toISOString())
+        .gte('date', start.toISOString().split('T')[0])
+        .lte('date', end.toISOString().split('T')[0])
         .order('date', { ascending: true })
 
       if (error) return console.error('Fehler beim Laden:', error)
@@ -160,7 +160,7 @@ export default function TerminalPage() {
     }
   }, [step])
 
-  // --- Datenabfragen ---
+  // --- Daten laden ---
   const loadMyWeekStats = async (uid: string) => {
     const from = startOfWeekMonday()
     const { data } = await supabase
@@ -213,28 +213,45 @@ export default function TerminalPage() {
     setFreeCrates(count || 0)
   }
 
-  // --- Kiste ausgeben (nicht Freibier, keine Buchung) ---
-  const handleCrateWithdraw = async () => {
-    const { data } = await supabase
-      .from('crates')
-      .select('id, quantity_remaining')
-      .eq('is_free', false)
-      .gt('quantity_remaining', 0)
-      .limit(1)
+  // --- 🧊 Kiste ausgeben (Dropdown-Logik, verbucht crate_price_cents) ---
+  const handleCrateWithdraw = async (selectedDrinkId: number) => {
+    if (!user) return setToast('⚠️ Kein Nutzer eingeloggt!')
 
-    if (!data?.length) return setToast('❌ Keine Kisten verfügbar')
-    const crate = data[0]
+    const drink = drinks.find((d) => d.id === selectedDrinkId)
+    if (!drink) return setToast('❌ Getränk nicht gefunden')
 
-    await supabase
-      .from('crates')
-      .update({ quantity_remaining: crate.quantity_remaining - 20 })
-      .eq('id', crate.id)
+    const price = drink.crate_price_cents || 0
+    const now = new Date().toISOString()
 
-    setToast('🥶 Kiste ausgegeben (nicht verbucht)')
-    await loadFreeCrates()
+    const { error: insertError } = await supabase.from('consumptions').insert({
+      user_id: user.id,
+      drink_id: drink.id,
+      quantity: BOTTLES_PER_CRATE,
+      source: 'crate',
+      unit_price_cents: price / BOTTLES_PER_CRATE,
+      via_terminal: true,
+      created_at: now,
+    })
+
+    if (insertError) {
+      console.error(insertError)
+      return setToast('❌ Fehler beim Verbuchen der Kiste')
+    }
+
+    const delta = price
+    const { data: upd } = await supabase
+      .from('profiles')
+      .update({ open_balance_cents: user.open_balance_cents + delta })
+      .eq('id', user.id)
+      .select('open_balance_cents')
+      .single()
+
+    if (upd) setUser({ ...user, open_balance_cents: upd.open_balance_cents })
+
+    setToast(`🥶 Kiste ${drink.name} verbucht (${euro(price)})`)
   }
 
-  // --- Verbuchung ---
+  // --- Buchung ---
   const confirmSinglesBooking = async (free: boolean) => {
     if (!user) return
     if (drinks.every((d) => d.qty === 0)) return setToast('❌ Bitte Getränk wählen!')
@@ -326,10 +343,9 @@ export default function TerminalPage() {
       </header>
 
       <div className="pt-14 px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6 h-[calc(100vh-3.5rem)]">
-        {/* Linke Seite */}
+        {/* Links */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-8 overflow-y-auto">
           {step === 'pin' ? (
-            // PIN-Pad
             <div className="w-full max-w-xs mx-auto text-center">
               <h1 className="text-3xl font-semibold mb-8">🔒 PIN-Eingabe</h1>
               <div className="flex justify-center gap-3 mb-8">
@@ -354,7 +370,6 @@ export default function TerminalPage() {
               </div>
             </div>
           ) : (
-            // Info-Karten nach Login
             <div className="space-y-4">
               {loadingInfo ? (
                 <p className="text-neutral-500 text-center">⏳ Daten werden geladen...</p>
@@ -371,7 +386,7 @@ export default function TerminalPage() {
           )}
         </div>
 
-        {/* Rechte Seite */}
+        {/* Rechts */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-6 overflow-y-auto">
           {step === 'overview' && (
             <>
@@ -396,9 +411,29 @@ export default function TerminalPage() {
                 <button onClick={openBookingPopup} className="w-full h-14 rounded-2xl bg-green-600 hover:bg-green-700 text-lg font-medium">
                   📤 Jetzt verbuchen
                 </button>
-                <button onClick={handleCrateWithdraw} className="w-full h-14 rounded-2xl bg-blue-600 hover:bg-blue-700 text-lg font-medium">
-                  🥶 Kiste ausgeben
-                </button>
+
+                <div className="flex gap-2">
+                  <select
+                    id="crateDrink"
+                    className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-white"
+                    onChange={(e) => setSelectedCrateDrink(Number(e.target.value))}
+                    value={selectedCrateDrink}
+                  >
+                    <option value={0}>Kiste wählen...</option>
+                    {drinks.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({euro(d.crate_price_cents)})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => selectedCrateDrink && handleCrateWithdraw(selectedCrateDrink)}
+                    disabled={!selectedCrateDrink}
+                    className="px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-lg font-medium"
+                  >
+                    🥶 Kiste
+                  </button>
+                </div>
               </div>
             </>
           )}
