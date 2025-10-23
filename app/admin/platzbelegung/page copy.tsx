@@ -26,21 +26,11 @@ export default function PlatzbelegungAdmin() {
     })
   }
 
-  // 🔹 CSV in Supabase speichern (mit automatischem Löschen alter Daten)
+  // 🔹 CSV in Supabase speichern
   const handleUpload = async () => {
     if (!rows.length) return setMessage('⚠️ Keine Daten geladen')
     setUploading(true)
-    setMessage('⏳ Alte Daten werden gelöscht...')
 
-    // 1️⃣ Alte Daten löschen
-    const { error: delError } = await supabase.from('platzbelegung').delete().neq('id', 0)
-    if (delError) {
-      console.error('Fehler beim Löschen:', delError)
-      setUploading(false)
-      return setMessage(`❌ Fehler beim Löschen: ${delError.message}`)
-    }
-
-    // 2️⃣ Neue Daten vorbereiten
     const mapped = rows.map((r) => ({
       date: r['Datum']
         ? r['Datum'].split('.').reverse().join('-') // z. B. 25.10.2025 → 2025-10-25
@@ -54,18 +44,11 @@ export default function PlatzbelegungAdmin() {
       location: r['Spielort'] || null,
     }))
 
-    // 3️⃣ Neue Daten einfügen
-    setMessage('📤 Lade neue Daten hoch...')
-    const { error: insertError } = await supabase.from('platzbelegung').insert(mapped)
+    const { error } = await supabase.from('platzbelegung').insert(mapped)
     setUploading(false)
 
-    if (insertError) {
-      console.error('Fehler beim Einfügen:', insertError)
-      setMessage(`❌ Fehler beim Speichern: ${insertError.message}`)
-    } else {
-      setMessage(`✅ ${mapped.length} Einträge erfolgreich importiert!`)
-      setRows([]) // CSV-Tabelle zurücksetzen
-    }
+    if (error) setMessage(`❌ Fehler beim Speichern: ${error.message}`)
+    else setMessage(`✅ ${mapped.length} Einträge erfolgreich gespeichert!`)
   }
 
   return (
