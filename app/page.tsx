@@ -353,7 +353,7 @@ export default function HomePage() {
 
           
 {/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
-import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
+
 
 <div className="grid grid-cols-2 gap-3 mb-6">
   <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
