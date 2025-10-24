@@ -423,22 +423,24 @@ window.addEventListener('keydown', reset, { passive: true })
 
 
     if (inserts.length > 0) {
-      const { data, error } = await supabase
-  .from('consumptions')
-  .insert(inserts)
-  .select()
+  const { data, error } = await supabase
+    .from('consumptions')
+    .insert(inserts)
+    .select()
 
-if (error) {
-  console.error('Insert error', error)
-  showToast('❌ Buchung fehlgeschlagen')
-  return
-}
+  if (error) {
+    console.error('Insert error', error)
+    showToast('❌ Buchung fehlgeschlagen')
+    return
+  }
 
-if (!data || data.length === 0) {
-  console.warn('Insert erfolgreich, aber keine Daten zurückgegeben')
-} else {
-  console.log('Insert erfolgreich:', data)
-}
+  if (!data || data.length === 0) {
+    console.warn('Insert erfolgreich, aber keine Daten zurückgegeben')
+  } else {
+    console.log('Insert erfolgreich:', data)
+  }
+console.log('✅ Insert erfolgreich auf Device:', navigator.userAgent)
+
 
 showToast('✅ Bestellung verbucht')
 
@@ -479,13 +481,27 @@ showToast('✅ Bestellung verbucht')
 
   const buyCrateNow = useCallback(async () => {
     if (!user || !selectedDrink) return
-    const { error } = await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: selectedDrink.id,
-      quantity: BOTTLES_PER_CRATE,
-      unit_price_cents: selectedDrink.crate_price_cents,
-      source: 'crate',
-    })
+    const { data, error } = await supabase
+  .from('consumptions')
+  .insert({
+    user_id: user.id,
+    drink_id: selectedDrink.id,
+    quantity: BOTTLES_PER_CRATE,
+    unit_price_cents: selectedDrink.crate_price_cents,
+    source: 'crate',
+  })
+  .select()
+
+if (error) {
+  console.error('Insert error (Kiste):', error)
+  showToast('❌ Kiste konnte nicht gebucht werden')
+  return
+}
+
+if (!data || data.length === 0) {
+  console.warn('Insert erfolgreich, aber keine Daten zurückgegeben (Kiste)')
+}
+
     if (error) {
       console.error(error)
       showToast('❌ Kiste konnte nicht gebucht werden')
