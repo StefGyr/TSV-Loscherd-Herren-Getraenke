@@ -220,6 +220,7 @@ export default function HomePage() {
             )}
             <button
               disabled={!selectedDrink}
+              onClick={openConfirmDrinkPopup}
               className="w-full h-12 bg-white text-black rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50"
             >
               Jetzt verbuchen
@@ -232,7 +233,7 @@ export default function HomePage() {
               onClick={() => setFreePopup(true)}
               className="w-full h-12 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-medium transition"
             >
-              🍻 Freigetränke bereitstellen (20 × Bierpreis)
+              🍻 Freigetränke bereitstellen
             </button>
           </div>
 
