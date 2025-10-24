@@ -3,10 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TopNav from '@/components/TopNav'
-import { supabase } from '@/lib/supabase-browser'
-import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
-
-type PopupData = { title: string; message: string; onConfirm: () => void }
+import { supabase } from '@/lib/supabase-browser'type PopupData = { title: string; message: string; onConfirm: () => void }
 type Toast = { id: number; text: string; type?: 'success' | 'error' }
 type Drink = { id: number; name: string; price_cents: number; crate_price_cents: number }
 type Booking = { created_at: string; text: string }
@@ -37,7 +34,10 @@ export default function HomePage() {
   const [popup, setPopup] = useState<PopupData | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const addToast = (text: string, type: 'success' | 'error' = 'success') => {
+  
+
+  const [myWeekTotal, setMyW eekTotal] = useState(0);
+  const [lastPayment, setLastPayment] = useState<{ amount: number; date: string } | null>(null);const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
     setToasts((prev) => [...prev, { id, text, type }])
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
@@ -352,10 +352,7 @@ export default function HomePage() {
         <div className="max-w-md mx-auto space-y-6">
 
           
-{/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
-
-
-<div className="grid grid-cols-2 gap-3 mb-6">
+{/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}<div className="grid grid-cols-2 gap-3 mb-6">
   <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
     <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-red-500/20 to-red-300/10" />
     <div className="flex items-center gap-3">
@@ -442,37 +439,7 @@ export default function HomePage() {
             </button>
           </section>
 
-          {/* 🎉 Globaler Freibier-Pool – nur bei Bier */}
-{selectedDrink && selectedDrink.name.toLowerCase() === 'bier' && (
-  <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 space-y-3">
-    <h2 className="text-xl font-semibold">🎉 Freibier-Pool (global)</h2>
-    <p className="text-sm text-neutral-300">
-      Verfügbar: <span className="font-semibold text-emerald-400">{freePool}</span> Flaschen für alle Getränke
-    </p>
-
-    {!selectedDrink && <p className="text-sm text-neutral-500">Wähle ein Getränk, um eine Kiste bereitzustellen.</p>}
-    {selectedDrink && (
-      <>
-        <p className="text-sm text-neutral-400">
-          Kistenpreis {selectedDrink.name}: {euro(selectedDrink.crate_price_cents)} • {BOTTLES_PER_CRATE} Flaschen
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button onClick={() => openCratePopup('paid')} className="bg-blue-700 hover:bg-blue-800 py-3 rounded-lg font-medium">
-            Kiste kaufen ({euro(selectedDrink.crate_price_cents)})
-          </button>
-          <button onClick={() => openCratePopup('own')} className="bg-yellow-600 hover:bg-yellow-700 py-3 rounded-lg font-medium">
-            Eigene Kiste (0 €)
-          </button>
-        </div>
-      </>
-    )}
-  </section>
-)}
-{/* 🧾 Letzte Buchungen */}
-          
-{/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
-
-<div className="grid grid-cols-2 gap-3 mb-6">
+          {/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}<div className="grid grid-cols-2 gap-3 mb-6">
   <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
     <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-red-500/20 to-red-300/10" />
     <div className="flex items-center gap-3">
