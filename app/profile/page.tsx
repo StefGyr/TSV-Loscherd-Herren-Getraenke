@@ -84,7 +84,11 @@ export default function ProfilePage() {
     setPin(prof?.pin || '')
 
     const totalDrinks = (cons || []).reduce((sum, c) => sum + (c.quantity || 0), 0)
-    const totalFree = (cons || []).filter((c) => (c.unit_price_cents || 0) === 0).length
+// 🔹 Freibier: tatsächliche Anzahl getrunkener Gratisgetränke (nicht nur Buchungen)
+const totalFree = (cons || [])
+  .filter((c) => (c.unit_price_cents || 0) === 0)
+  .reduce((sum, c) => sum + (c.quantity || 0), 0)
+
     const lastPayment = pay && pay.length > 0 ? { amount: pay[0].amount_cents / 100, created_at: pay[0].created_at } : null
     setStats({ totalDrinks, totalFree, lastPayment })
   }
