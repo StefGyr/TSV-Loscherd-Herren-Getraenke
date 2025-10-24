@@ -472,6 +472,20 @@ export default function TopTerminalPage() {
     setPopup(null)
     showToast(`✅ Kiste ${selectedDrink.name} gebucht`)
 
+// Kontostand erhöhen um Kistenpreis
+const { error: crateBalanceError } = await supabase.rpc('increment_balance', {
+  user_id_input: user.id,
+  amount_input: selectedDrink.crate_price_cents
+})
+if (crateBalanceError) {
+  console.error('Fehler beim Aktualisieren des Kontostands (Kiste):', crateBalanceError)
+} else {
+  setUser(prev =>
+    prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + selectedDrink.crate_price_cents } : prev
+  )
+}
+
+
     // 5s → Spruch
     setTimeout(() => {
       const isSpezi = selectedDrink.name.toLowerCase().includes('spezi')
