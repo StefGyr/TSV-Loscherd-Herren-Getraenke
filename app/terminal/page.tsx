@@ -608,7 +608,6 @@ export default function TopTerminalPage() {
                         <div className="w-12 text-center text-xl tabular-nums select-none">{d.qty ?? 0}</div>
                         <button onClick={() => incQty(d)} className="w-12 h-12 rounded-xl bg-emerald-700 text-white text-2xl leading-none">＋</button>
                         {/* Optional: Einzel / Freibier-Kontext-Button je Drink */}
-                        <button onClick={() => { setSelectedDrink(d); setPopup('checkout'); }} className="hidden sm:inline-flex px-3 py-2 rounded-lg bg-green-700/80 hover:bg-green-600 text-sm">📤 Einzel / Freibier</button>
                         <button onClick={() => openCrateInfo(d)} className="px-3 py-2 rounded-lg bg-blue-700/80 hover:bg-blue-600 text-sm">🧊 Kiste kaufen</button>
                       </div>
                     </div>
