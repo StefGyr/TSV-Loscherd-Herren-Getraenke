@@ -396,32 +396,33 @@ export default function HomePage() {
             </button>
           </section>
 
-          {/* 🎉 Globaler Freibier-Pool */}
-          <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 space-y-3">
-            <h2 className="text-xl font-semibold">🎉 Freibier-Pool (global)</h2>
-            <p className="text-sm text-neutral-300">
-              Verfügbar: <span className="font-semibold text-emerald-400">{freePool}</span> Flaschen für alle Getränke
-            </p>
+          {/* 🎉 Globaler Freibier-Pool – nur bei Bier */}
+{selectedDrink && selectedDrink.name.toLowerCase() === 'bier' && (
+  <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 space-y-3">
+    <h2 className="text-xl font-semibold">🎉 Freibier-Pool (global)</h2>
+    <p className="text-sm text-neutral-300">
+      Verfügbar: <span className="font-semibold text-emerald-400">{freePool}</span> Flaschen für alle Getränke
+    </p>
 
-            {!selectedDrink && <p className="text-sm text-neutral-500">Wähle ein Getränk, um eine Kiste bereitzustellen.</p>}
-            {selectedDrink && (
-              <>
-                <p className="text-sm text-neutral-400">
-                  Kistenpreis {selectedDrink.name}: {euro(selectedDrink.crate_price_cents)} • {BOTTLES_PER_CRATE} Flaschen
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button onClick={() => openCratePopup('paid')} className="bg-blue-700 hover:bg-blue-800 py-3 rounded-lg font-medium">
-                    Kiste kaufen ({euro(selectedDrink.crate_price_cents)})
-                  </button>
-                  <button onClick={() => openCratePopup('own')} className="bg-yellow-600 hover:bg-yellow-700 py-3 rounded-lg font-medium">
-                    Eigene Kiste (0 €)
-                  </button>
-                </div>
-              </>
-            )}
-          </section>
-
-          {/* 🧾 Letzte Buchungen */}
+    {!selectedDrink && <p className="text-sm text-neutral-500">Wähle ein Getränk, um eine Kiste bereitzustellen.</p>}
+    {selectedDrink && (
+      <>
+        <p className="text-sm text-neutral-400">
+          Kistenpreis {selectedDrink.name}: {euro(selectedDrink.crate_price_cents)} • {BOTTLES_PER_CRATE} Flaschen
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button onClick={() => openCratePopup('paid')} className="bg-blue-700 hover:bg-blue-800 py-3 rounded-lg font-medium">
+            Kiste kaufen ({euro(selectedDrink.crate_price_cents)})
+          </button>
+          <button onClick={() => openCratePopup('own')} className="bg-yellow-600 hover:bg-yellow-700 py-3 rounded-lg font-medium">
+            Eigene Kiste (0 €)
+          </button>
+        </div>
+      </>
+    )}
+  </section>
+)}
+{/* 🧾 Letzte Buchungen */}
           <section>
             <h2 className="text-xl font-semibold mb-2">🧾 Letzte Buchungen</h2>
             <ul className="text-sm divide-y divide-neutral-800">
