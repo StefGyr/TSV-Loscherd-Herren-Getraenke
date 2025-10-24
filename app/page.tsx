@@ -351,27 +351,53 @@ export default function HomePage() {
         <div className="max-w-md mx-auto space-y-6">
 
           
-{/* 🔹 Statistikkarten (mobile 2x2 Grid) */}
+{/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
+import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
+
 <div className="grid grid-cols-2 gap-3 mb-6">
-  <div className="rounded-2xl bg-gradient-to-br from-rose-900/80 to-rose-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">💰</div>
-    <div className="text-xs text-neutral-300">Kontostand</div>
-    <div className="text-base font-semibold">{balance >= 0 ? '-' : '+'}{Math.abs(balance / 100).toFixed(2)} €</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-red-500/20 to-red-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><PiggyBank className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Kontostand</p>
+        <p className="text-xl font-semibold leading-tight">{(Math.abs(balance) / 100).toFixed(2)} €</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{balance > 0 ? 'Schulden' : balance < 0 ? 'Guthaben' : 'Ausgeglichen'}</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-green-900/80 to-green-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">🍺</div>
-    <div className="text-xs text-neutral-300">Gesamtverbrauch</div>
-    <div className="text-base font-semibold">{bookings.length}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-emerald-500/20 to-emerald-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Beer className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Gesamtverbrauch</p>
+        <p className="text-xl font-semibold leading-tight">{myWeekTotal}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">Flaschen / Woche</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-emerald-800/80 to-emerald-700/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">🎁</div>
-    <div className="text-xs text-neutral-300">Freibier</div>
-    <div className="text-base font-semibold">{freePool}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-pink-500/20 to-pink-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Gift className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Freibier</p>
+        <p className="text-xl font-semibold leading-tight">{freePool}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">Verfügbar</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-blue-900/80 to-blue-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">💶</div>
-    <div className="text-xs text-neutral-300">Letzte Zahlung</div>
-    <div className="text-base font-semibold">{bookings[0] ? shortDate(bookings[0].created_at) : '—'}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-blue-500/20 to-blue-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Wallet className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Letzte Zahlung</p>
+        <p className="text-xl font-semibold leading-tight">{lastPayment ? `${lastPayment.amount.toFixed(2)} €` : '—'}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{lastPayment ? `am ${lastPayment.date}` : ''}</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -443,27 +469,53 @@ export default function HomePage() {
 )}
 {/* 🧾 Letzte Buchungen */}
           
-{/* 🔹 Statistikkarten (mobile 2x2 Grid) */}
+{/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
+import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
+
 <div className="grid grid-cols-2 gap-3 mb-6">
-  <div className="rounded-2xl bg-gradient-to-br from-rose-900/80 to-rose-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">💰</div>
-    <div className="text-xs text-neutral-300">Kontostand</div>
-    <div className="text-base font-semibold">{balance >= 0 ? '-' : '+'}{Math.abs(balance / 100).toFixed(2)} €</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-red-500/20 to-red-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><PiggyBank className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Kontostand</p>
+        <p className="text-xl font-semibold leading-tight">{(Math.abs(balance) / 100).toFixed(2)} €</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{balance > 0 ? 'Schulden' : balance < 0 ? 'Guthaben' : 'Ausgeglichen'}</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-green-900/80 to-green-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">🍺</div>
-    <div className="text-xs text-neutral-300">Gesamtverbrauch</div>
-    <div className="text-base font-semibold">{bookings.length}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-emerald-500/20 to-emerald-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Beer className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Gesamtverbrauch</p>
+        <p className="text-xl font-semibold leading-tight">{myWeekTotal}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">Flaschen / Woche</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-emerald-800/80 to-emerald-700/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">🎁</div>
-    <div className="text-xs text-neutral-300">Freibier</div>
-    <div className="text-base font-semibold">{freePool}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-pink-500/20 to-pink-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Gift className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Freibier</p>
+        <p className="text-xl font-semibold leading-tight">{freePool}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">Verfügbar</p>
+      </div>
+    </div>
   </div>
-  <div className="rounded-2xl bg-gradient-to-br from-blue-900/80 to-blue-800/40 p-3 text-center shadow-md">
-    <div className="text-2xl mb-1">💶</div>
-    <div className="text-xs text-neutral-300">Letzte Zahlung</div>
-    <div className="text-base font-semibold">{bookings[0] ? shortDate(bookings[0].created_at) : '—'}</div>
+  <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
+    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-blue-500/20 to-blue-300/10" />
+    <div className="flex items-center gap-3">
+      <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner"><Wallet className='w-5 h-5' /></div>
+      <div>
+        <p className="text-xs text-gray-400">Letzte Zahlung</p>
+        <p className="text-xl font-semibold leading-tight">{lastPayment ? `${lastPayment.amount.toFixed(2)} €` : '—'}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{lastPayment ? `am ${lastPayment.date}` : ''}</p>
+      </div>
+    </div>
   </div>
 </div>
 
