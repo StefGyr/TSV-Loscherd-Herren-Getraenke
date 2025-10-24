@@ -128,6 +128,28 @@ export default function ProfilePage() {
       rows[name].qty += b.quantity
       rows[name].sumCents += price * b.quantity
     }
+    // 🔹 Kistenübersicht hinzufügen
+const terminalCrates = filteredBookings.filter((b) => b.source === 'crate' && b.via_terminal)
+const appCrates = filteredBookings.filter((b) => b.source === 'crate' && !b.via_terminal)
+
+if (terminalCrates.length > 0) {
+  const qty = terminalCrates.reduce((sum, b) => sum + (b.quantity || 0), 0)
+  const total = terminalCrates.reduce((sum, b) => sum + (b.unit_price_cents || 0) * (b.quantity || 0), 0)
+  rows['📦 Gekaufte Kisten (Terminal)'] = { qty, sumCents: total }
+}
+
+if (appCrates.length > 0) {
+  const qty = appCrates.reduce((sum, b) => sum + (b.quantity || 0), 0)
+  const total = appCrates.reduce((sum, b) => sum + (b.unit_price_cents || 0) * (b.quantity || 0), 0)
+  rows['🎁 Bereitgestellte Kisten (App)'] = { qty, sumCents: total }
+}
+// 🔹 Verbrauchte Freigetränke zählen
+const freeDrinks = filteredBookings.filter((b) => b.unit_price_cents === 0 && b.source === 'single')
+if (freeDrinks.length > 0) {
+  const qty = freeDrinks.reduce((sum, b) => sum + (b.quantity || 0), 0)
+  rows['🎉 Verbrauchte Freigetränke'] = { qty, sumCents: 0 }
+}
+
     return rows
   }, [filteredBookings])
 
