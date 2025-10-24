@@ -40,7 +40,7 @@ export default function HomePage() {
 
   
 
-  const [myWeekTotal, setMyW eekTotal] = useState(0);
+  const [myWeekTotal, setMyWeekTotal] = useState(0);
   const [lastPayment, setLastPayment] = useState<{ amount: number; date: string } | null>(null);const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
     setToasts((prev) => [...prev, { id, text, type }])
