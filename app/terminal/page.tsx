@@ -420,6 +420,9 @@ window.addEventListener('keydown', reset, { passive: true })
       setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
     }
   }
+console.log('user:', user)
+console.log('user.id:', user?.id)
+console.log('inserts:', inserts)
 
 
     if (inserts.length > 0) {
