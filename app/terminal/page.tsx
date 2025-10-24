@@ -224,18 +224,24 @@ export default function TopTerminalPage() {
   }, [])
 
   const loadMyWeekStats = useCallback(async (uid: string) => {
-    const from = startOfWeekMonday()
-    const { data, error } = await supabase
-      .from('consumptions')
-      .select('quantity')
-      .eq('user_id', uid)
-      .gte('created_at', from.toISOString())
-    if (error) {
-      console.error('Fehler WeekStats:', error)
-      return
-    }
-    setMyWeekTotal((data ?? []).reduce((s, r) => s + (r.quantity || 0), 0))
-  }, [])
+  const from = startOfWeekMonday()
+  const to = new Date(from)
+  to.setDate(to.getDate() + 7)
+
+  const { data, error } = await supabase
+    .from('consumptions')
+    .select('quantity')
+    .eq('user_id', uid)
+    .gte('created_at', from.toISOString())
+    .lt('created_at', to.toISOString())
+
+  if (error) {
+    console.error('Fehler WeekStats:', error)
+    return
+  }
+  setMyWeekTotal((data ?? []).reduce((s, r) => s + (r.quantity || 0), 0))
+}, [])
+
 
   const loadFavoriteDrink = useCallback(async (uid: string) => {
     const { data, error } = await supabase
@@ -288,8 +294,9 @@ export default function TopTerminalPage() {
       })
     }, 1000)
     const reset = () => setTimer(60)
-    window.addEventListener('click', reset)
-    window.addEventListener('keydown', reset)
+window.addEventListener('click', reset, { passive: true })
+window.addEventListener('keydown', reset, { passive: true })
+
     return () => {
       clearInterval(countdown)
       window.removeEventListener('click', reset)
@@ -316,6 +323,8 @@ export default function TopTerminalPage() {
     setUser({ id: match.id, first_name: match.first_name, last_name: match.last_name, pin: match.pin, open_balance_cents: match.open_balance_cents ?? 0 })
     setPin('')
     setStep('overview')
+    setTimer(60) // 🔹 Timer sicher zurücksetzen
+
     await Promise.all([
       loadMyWeekStats(match.id),
       loadFavoriteDrink(match.id),
@@ -414,12 +423,25 @@ export default function TopTerminalPage() {
 
 
     if (inserts.length > 0) {
-      const { error } = await supabase.from('consumptions').insert(inserts)
-      if (error) {
-        console.error('Insert error', error)
-        showToast('❌ Buchung fehlgeschlagen')
-        return
-      }
+      const { data, error } = await supabase
+  .from('consumptions')
+  .insert(inserts)
+  .select()
+
+if (error) {
+  console.error('Insert error', error)
+  showToast('❌ Buchung fehlgeschlagen')
+  return
+}
+
+if (!data || data.length === 0) {
+  console.warn('Insert erfolgreich, aber keine Daten zurückgegeben')
+} else {
+  console.log('Insert erfolgreich:', data)
+}
+
+showToast('✅ Bestellung verbucht')
+
     }
 
     // globalen Freibier-Pool reduzieren
