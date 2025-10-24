@@ -1,4 +1,3 @@
-
 'use client'
 
 /**
@@ -224,46 +223,53 @@ export default function TopTerminalPage() {
   }, [])
 
   const loadMyWeekStats = useCallback(async (uid: string) => {
-  const from = startOfWeekMonday()
-  const to = new Date(from)
-  to.setDate(to.getDate() + 7)
+    const from = startOfWeekMonday()
+    const to = new Date(from)
+    to.setDate(to.getDate() + 7)
 
-  const { data, error } = await supabase
-    .from('consumptions')
-    .select('quantity')
-    .eq('user_id', uid)
-    .gte('created_at', from.toISOString())
-    .lt('created_at', to.toISOString())
-
-  if (error) {
-    console.error('Fehler WeekStats:', error)
-    return
-  }
-  setMyWeekTotal((data ?? []).reduce((s, r) => s + (r.quantity || 0), 0))
-}, [])
-
-
-  const loadFavoriteDrink = useCallback(async (uid: string) => {
     const { data, error } = await supabase
       .from('consumptions')
-      .select('quantity, drinks(name)')
+      .select('quantity')
       .eq('user_id', uid)
+      .gte('created_at', from.toISOString())
+      .lt('created_at', to.toISOString())
+
     if (error) {
-      console.error('Fehler Fav:', error)
+      console.error('Fehler WeekStats:', error)
       return
     }
-    if (!data?.length) return setFavoriteDrink('—')
-    const count: Record<string, number> = {}
-    for (const r of data) {
-      const name =
-        (Array.isArray(r.drinks)
-          ? r.drinks[0]?.name
-          : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
-      count[name] = (count[name] || 0) + (r.quantity || 0)
-    }
-    const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
-    setFavoriteDrink(fav ? fav[0] : '—')
+    setMyWeekTotal((data ?? []).reduce((s, r) => s + (r.quantity || 0), 0))
   }, [])
+
+  const loadFavoriteDrink = useCallback(async (uid: string) => {
+  const { data, error } = await supabase
+    .from('consumptions')
+    .select('quantity, drinks(name)')
+    .eq('user_id', uid)
+
+  if (error) {
+    console.error('Fehler Fav:', error)
+    return
+  }
+  if (!data?.length) {
+    setFavoriteDrink('—')
+    return
+  }
+
+  const count: Record<string, number> = {} // ✅ korrekt initialisiert
+
+  for (const r of data) {
+    const name =
+      (Array.isArray(r.drinks)
+        ? r.drinks[0]?.name
+        : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
+    count[name] = (count[name] || 0) + (r.quantity || 0)
+  }
+
+  const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
+  setFavoriteDrink(fav ? fav[0] : '—')
+}, [])
+
 
   // -----------------------------
   // Effekte
@@ -294,8 +300,8 @@ export default function TopTerminalPage() {
       })
     }, 1000)
     const reset = () => setTimer(60)
-window.addEventListener('click', reset, { passive: true })
-window.addEventListener('keydown', reset, { passive: true })
+    window.addEventListener('click', reset, { passive: true })
+    window.addEventListener('keydown', reset, { passive: true })
 
     return () => {
       clearInterval(countdown)
@@ -377,6 +383,8 @@ window.addEventListener('keydown', reset, { passive: true })
 
   const confirmCheckout = useCallback(async () => {
     if (!user) return
+
+    // Sammle Inserts & Zähler
     const inserts: any[] = []
     let freeUsed = 0
     let anySpezi = false
@@ -406,62 +414,46 @@ window.addEventListener('keydown', reset, { passive: true })
       }
     }
 
-      // Gesamtbetrag auf das Profilkonto addieren (nur bezahlte Beträge)
-  if (checkoutTotals.payCents > 0) {
-    const { data, error: balanceError } = await supabase.rpc('increment_balance', {
-      user_id_input: user.id,
-      amount_input: checkoutTotals.payCents
-    })
-    console.log('RPC Ergebnis:', { data, balanceError })
-    if (balanceError) {
-      console.error('Fehler beim Aktualisieren des Kontostands:', balanceError)
-    } else {
-      // lokale Anzeige direkt aktualisieren
-      setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
+    // Kontostand per RPC erhöhen (nur zahlpflichtiger Teil)
+    if (checkoutTotals.payCents > 0) {
+      const { data, error: balanceError } = await supabase.rpc('increment_balance', {
+        user_id_input: user.id,
+        amount_input: checkoutTotals.payCents
+      })
+      console.log('RPC Ergebnis increment_balance:', { data, balanceError })
+      if (balanceError) {
+        console.error('Fehler beim Aktualisieren des Kontostands:', balanceError)
+      } else {
+        setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
+      }
     }
-  }
-console.log('user:', user)
-console.log('user.id:', user?.id)
-console.log('inserts:', inserts)
 
-
+    // Einfügen aller Buchungen via SECURITY DEFINER RPC
     if (inserts.length > 0) {
-  const { data, error } = await supabase
-    .from('consumptions')
-    .insert(inserts)
-    .select()
-
-  if (error) {
-    console.error('Insert error', error)
-    showToast('❌ Buchung fehlgeschlagen')
-    return
-  }
-
-  if (!data || data.length === 0) {
-    console.warn('Insert erfolgreich, aber keine Daten zurückgegeben')
-  } else {
-    console.log('Insert erfolgreich:', data)
-  }
-console.log('✅ Insert erfolgreich auf Device:', navigator.userAgent)
-
-
-showToast('✅ Bestellung verbucht')
-
+      const { error: rpcErr1 } = await supabase.rpc('terminal_insert_consumptions', {
+        _rows: inserts as any,
+      })
+      if (rpcErr1) {
+        console.error('RPC terminal_insert_consumptions error:', rpcErr1)
+        showToast('❌ Buchung fehlgeschlagen')
+        return
+      }
     }
 
-    // globalen Freibier-Pool reduzieren
+    // globalen Freibier-Pool reduzieren (via RPC)
     if (freeUsed > 0) {
-      const { data: poolRow } = await supabase
-        .from(FREE_POOL_TABLE)
-        .select('id, quantity_remaining')
-        .eq('id', FREE_POOL_ID)
-        .maybeSingle()
-      const current = poolRow?.quantity_remaining ?? 0
-      const newQty = Math.max(0, current - freeUsed)
-      await supabase.from(FREE_POOL_TABLE).update({ quantity_remaining: newQty }).eq('id', FREE_POOL_ID)
-      setFreePool(newQty)
+      const { error: rpcErr2 } = await supabase.rpc('terminal_decrement_free_pool', {
+        _id: FREE_POOL_ID,
+        _used: freeUsed,
+      })
+      if (rpcErr2) {
+        console.error('RPC terminal_decrement_free_pool error:', rpcErr2)
+      } else {
+        setFreePool(p => Math.max(0, p - freeUsed))
+      }
     }
 
+    // UI aufräumen
     setCheckoutLines([])
     setPopup(null)
     setDrinks(list => list.map(d => ({ ...d, qty: 0 })))
@@ -472,7 +464,7 @@ showToast('✅ Bestellung verbucht')
     logoutTimer.current = setTimeout(() => {
       void startLogoutWithQuote(anySpezi)
     }, 5000)
-  }, [user, checkoutLines, showToast])
+  }, [user, checkoutLines, checkoutTotals.payCents, showToast])
 
   // -----------------------------
   // Kiste kaufen (pro Drink) – kein Freibierabzug
@@ -484,48 +476,40 @@ showToast('✅ Bestellung verbucht')
 
   const buyCrateNow = useCallback(async () => {
     if (!user || !selectedDrink) return
-    const { data, error } = await supabase
-  .from('consumptions')
-  .insert({
-    user_id: user.id,
-    drink_id: selectedDrink.id,
-    quantity: BOTTLES_PER_CRATE,
-    unit_price_cents: selectedDrink.crate_price_cents,
-    source: 'crate',
-  })
-  .select()
 
-if (error) {
-  console.error('Insert error (Kiste):', error)
-  showToast('❌ Kiste konnte nicht gebucht werden')
-  return
-}
+    const rows = [{
+      user_id: user.id,
+      drink_id: selectedDrink.id,
+      quantity: BOTTLES_PER_CRATE,
+      unit_price_cents: selectedDrink.crate_price_cents,
+      source: 'crate' as const,
+    }]
 
-if (!data || data.length === 0) {
-  console.warn('Insert erfolgreich, aber keine Daten zurückgegeben (Kiste)')
-}
-
-    if (error) {
-      console.error(error)
+    // Insert via SECURITY DEFINER RPC
+    const { error: rpcErr3 } = await supabase.rpc('terminal_insert_consumptions', {
+      _rows: rows as any,
+    })
+    if (rpcErr3) {
+      console.error('RPC terminal_insert_consumptions (crate) error:', rpcErr3)
       showToast('❌ Kiste konnte nicht gebucht werden')
       return
     }
+
     setPopup(null)
     showToast(`✅ Kiste ${selectedDrink.name} gebucht`)
 
-// Kontostand erhöhen um Kistenpreis
-const { error: crateBalanceError } = await supabase.rpc('increment_balance', {
-  user_id_input: user.id,
-  amount_input: selectedDrink.crate_price_cents
-})
-if (crateBalanceError) {
-  console.error('Fehler beim Aktualisieren des Kontostands (Kiste):', crateBalanceError)
-} else {
-  setUser(prev =>
-    prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + selectedDrink.crate_price_cents } : prev
-  )
-}
-
+    // Kontostand erhöhen um Kistenpreis
+    const { error: crateBalanceError } = await supabase.rpc('increment_balance', {
+      user_id_input: user.id,
+      amount_input: selectedDrink.crate_price_cents
+    })
+    if (crateBalanceError) {
+      console.error('Fehler beim Aktualisieren des Kontostands (Kiste):', crateBalanceError)
+    } else {
+      setUser(prev =>
+        prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + selectedDrink.crate_price_cents } : prev
+      )
+    }
 
     // 5s → Spruch
     setTimeout(() => {
