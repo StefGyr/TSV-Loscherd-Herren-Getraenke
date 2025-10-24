@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TopNav from '@/components/TopNav'
 import { supabase } from '@/lib/supabase-browser'
+import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
 
 type PopupData = { title: string; message: string; onConfirm: () => void }
 type Toast = { id: number; text: string; type?: 'success' | 'error' }
@@ -470,7 +471,6 @@ import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
 {/* 🧾 Letzte Buchungen */}
           
 {/* --- Stat Cards im Profil-Stil (mobile 2x2 Grid) --- */}
-import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
 
 <div className="grid grid-cols-2 gap-3 mb-6">
   <div className="relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm">
