@@ -397,6 +397,22 @@ export default function TopTerminalPage() {
       }
     }
 
+      // Gesamtbetrag auf das Profilkonto addieren (nur bezahlte Beträge)
+  if (checkoutTotals.payCents > 0) {
+    const { data, error: balanceError } = await supabase.rpc('increment_balance', {
+      user_id_input: user.id,
+      amount_input: checkoutTotals.payCents
+    })
+    console.log('RPC Ergebnis:', { data, balanceError })
+    if (balanceError) {
+      console.error('Fehler beim Aktualisieren des Kontostands:', balanceError)
+    } else {
+      // lokale Anzeige direkt aktualisieren
+      setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
+    }
+  }
+
+
     if (inserts.length > 0) {
       const { error } = await supabase.from('consumptions').insert(inserts)
       if (error) {
