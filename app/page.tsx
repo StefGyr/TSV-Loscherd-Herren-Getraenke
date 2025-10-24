@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TopNav from '@/components/TopNav'
-import { supabase } from '@/lib/supabase-browser'type PopupData = { title: string; message: string; onConfirm: () => void }
+import { supabase } from '@/lib/supabase-browser'
+import { PiggyBank, Beer, Gift, Wallet } from 'lucide-react'
+
+type PopupData = { title: string; message: string; onConfirm: () => void }
+
 type Toast = { id: number; text: string; type?: 'success' | 'error' }
 type Drink = { id: number; name: string; price_cents: number; crate_price_cents: number }
 type Booking = { created_at: string; text: string }
