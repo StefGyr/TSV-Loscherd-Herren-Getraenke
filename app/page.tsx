@@ -1,33 +1,40 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TopNav from '@/components/TopNav'
 import { supabase } from '@/lib/supabase-browser'
-
 
 type PopupData = { title: string; message: string; onConfirm: () => void }
 type Toast = { id: number; text: string; type?: 'success' | 'error' }
 type Drink = { id: number; name: string; price_cents: number; crate_price_cents: number }
 type Booking = { created_at: string; text: string }
 
+const BOTTLES_PER_CRATE = 20
+const FREE_POOL_TABLE = 'free_pool'
+const FREE_POOL_ID = 1
+
+const euro = (cents: number) => `${(cents / 100).toFixed(2)} €`
+const shortDate = (iso: string) => {
+  const d = new Date(iso)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`
+}
+
 export default function HomePage() {
   const [drinks, setDrinks] = useState<Drink[]>([])
   const [selectedDrink, setSelectedDrink] = useState<Drink | null>(null)
   const [quantity, setQuantity] = useState(1)
+
   const [balance, setBalance] = useState<number>(0)
   const [bookings, setBookings] = useState<Booking[]>([])
-  const [freeCrates, setFreeCrates] = useState<any[]>([])
+
+  // 🎉 Globaler Freibier-Pool (für alle Getränke)
+  const [freePool, setFreePool] = useState<number>(0)
   const [freeChoiceDrink, setFreeChoiceDrink] = useState<Drink | null>(null)
   const [pendingQty, setPendingQty] = useState<number>(0)
+
   const [popup, setPopup] = useState<PopupData | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
-
-  const euro = (cents: number) => `${(cents / 100).toFixed(2)} €`
-  const shortDate = (iso: string) => {
-    const d = new Date(iso)
-    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`
-  }
 
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -35,45 +42,47 @@ export default function HomePage() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
   }
 
-  // Getränke laden
+  // ─────────────────────────────────────────────
+  // Loader
+  // ─────────────────────────────────────────────
   useEffect(() => {
     const fetchDrinks = async () => {
-      const { data } = await supabase.from('drinks').select('*').order('name')
-      setDrinks(data || [])
+      const { data, error } = await supabase.from('drinks').select('*').order('name')
+      if (!error) setDrinks(data || [])
     }
     fetchDrinks()
   }, [])
 
-  // Freibier-Kisten laden
-  const fetchFreeCrates = async () => {
-    const { data } = await supabase
-      .from('crates')
-      .select('id, drink_id, quantity_remaining, is_free, created_at, drinks(name)')
-      .eq('is_free', true)
-      .gt('quantity_remaining', 0)
-      .order('created_at', { ascending: false })
-    setFreeCrates(data || [])
+  const loadFreePool = async () => {
+    const { data, error } = await supabase
+      .from(FREE_POOL_TABLE)
+      .select('id, quantity_remaining')
+      .eq('id', FREE_POOL_ID)
+      .maybeSingle()
+    if (error) {
+      console.error('free_pool load error:', error)
+      return
+    }
+    if (!data) {
+      // fallback: Zeile anlegen (optional – wenn RLS es zulässt)
+      await supabase.from(FREE_POOL_TABLE).insert([{ id: FREE_POOL_ID, quantity_remaining: 0 } as any])
+      setFreePool(0)
+    } else {
+      setFreePool(data.quantity_remaining ?? 0)
+    }
   }
-
-  useEffect(() => {
-    fetchFreeCrates()
-    const channel = supabase
-      .channel('crates-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'crates' }, fetchFreeCrates)
-      .subscribe()
-    return () => { void supabase.removeChannel(channel) }
-  }, [])
 
   // Kontostand + letzte Buchungen laden
   const loadStats = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
     if (!user) return
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('open_balance_cents')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
     setBalance(profile?.open_balance_cents ?? 0)
 
     const { data: cons } = await supabase
@@ -81,7 +90,7 @@ export default function HomePage() {
       .select('quantity, unit_price_cents, created_at, drinks(name)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .limit(5)
+      .limit(8)
 
     const drinkBookings: Booking[] = (cons || []).map((r: any) => ({
       created_at: r.created_at,
@@ -91,170 +100,182 @@ export default function HomePage() {
           : `${r.quantity}× ${r.drinks?.name ?? 'Unbekannt'} (${euro(r.unit_price_cents * r.quantity)})`,
     }))
 
-    const { data: crates } = await supabase
-      .from('crates')
-      .select('created_at, price_cents, drinks(name)')
-      .eq('created_by', user.id)
-      .order('created_at', { ascending: false })
-      .limit(3)
-
-    const crateBookings: Booking[] = (crates || []).map((c: any) => ({
-      created_at: c.created_at,
-      text:
-        c.price_cents === 0
-          ? `🧊 Eigene Kiste ${c.drinks?.name ?? 'Unbekannt'} (0 €)`
-          : `📦 Kiste ${c.drinks?.name ?? 'Unbekannt'} (${euro(c.price_cents)})`,
-    }))
-
-    const combined = [...drinkBookings, ...crateBookings].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    )
-
-    setBookings(combined.slice(0, 6))
+    // Optional: weitere Quellen hier zusammenführen (z. B. Zahlungen)
+    setBookings(drinkBookings)
   }
 
-  useEffect(() => { loadStats() }, [])
+  useEffect(() => {
+    loadStats()
+    loadFreePool()
 
-  // Getränk verbuchen
+    const ch = supabase
+      .channel('free-pool-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: FREE_POOL_TABLE }, loadFreePool)
+      .subscribe()
+    return () => { void supabase.removeChannel(ch) }
+  }, [])
+
+  // ─────────────────────────────────────────────
+  // Verbuchen – UI
+  // ─────────────────────────────────────────────
   const openConfirmDrinkPopup = () => {
     if (!selectedDrink) return addToast('Bitte Getränk wählen', 'error')
-    const total = selectedDrink.price_cents * quantity
-    setPopup({
-      title: 'Buchung bestätigen',
-      message: `Du buchst ${quantity} × ${selectedDrink.name} = ${euro(total)}.\n\nJetzt wirklich verbuchen?`,
-      onConfirm: handleBookDrink,
-    })
-  }
 
-  const handleBookDrink = async () => {
-    if (!selectedDrink) return
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const totalCents = selectedDrink.price_cents * quantity
-
-    const { data: free } = await supabase
-      .from('crates')
-      .select('id, quantity_remaining')
-      .eq('drink_id', selectedDrink.id)
-      .eq('is_free', true)
-      .gt('quantity_remaining', 0)
-      .limit(1)
-
-    if (free && free.length > 0) {
+    // Wenn globales Freibier verfügbar ist → Entscheidung einholen
+    if (freePool > 0) {
       setFreeChoiceDrink(selectedDrink)
       setPendingQty(quantity)
       return
     }
 
-    await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: selectedDrink.id,
-      quantity,
-      unit_price_cents: selectedDrink.price_cents,
-      source: 'single',
-      created_at: new Date().toISOString(),
+    // sonst: direkt bezahlen
+    setPopup({
+      title: 'Buchung bestätigen',
+      message: `Du buchst ${quantity} × ${selectedDrink.name} = ${euro(selectedDrink.price_cents * quantity)}.\n\nJetzt wirklich verbuchen?`,
+      onConfirm: () => void handlePaidBooking(selectedDrink, quantity),
     })
+  }
 
-    await supabase.rpc('increment_balance', { user_id: user.id, amount: totalCents })
+  // ─────────────────────────────────────────────
+  // Bezahlte Buchung (ohne Freibier)
+  // ─────────────────────────────────────────────
+  const handlePaidBooking = async (drink: Drink, qty: number) => {
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user) return
 
-    addToast(`💰 ${quantity}× ${selectedDrink.name} verbucht`)
+    const now = new Date().toISOString()
+    const lineTotal = drink.price_cents * qty
+
+    const { error: insErr } = await supabase.from('consumptions').insert({
+      user_id: user.id,
+      drink_id: drink.id,
+      quantity: qty,
+      unit_price_cents: drink.price_cents,
+      source: 'single',
+      created_at: now,
+    })
+    if (insErr) {
+      console.error('consumption insert error:', insErr)
+      addToast('❌ Buchung fehlgeschlagen', 'error')
+      return
+    }
+
+    // ✅ Kontostand erhöhen – ACHTUNG: korrekte Parameternamen!
+    const { error: balErr } = await supabase.rpc('increment_balance', {
+      user_id_input: user.id,
+      amount_input: lineTotal,
+    })
+    if (balErr) {
+      console.error('increment_balance error:', balErr)
+      addToast('⚠️ Betrag konnte nicht abgebucht werden', 'error')
+    } else {
+      setBalance((b) => (b ?? 0) + lineTotal)
+    }
+
+    addToast(`💰 ${qty}× ${drink.name} verbucht`)
     setQuantity(1)
     setSelectedDrink(null)
     await loadStats()
-    await fetchFreeCrates()
   }
 
-// --- Smarte Freibier-Logik mit kombinierter Toastmeldung ---
-const finalizeFreeDecision = async (takeFree: boolean) => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !freeChoiceDrink) return
+  // ─────────────────────────────────────────────
+  // Freibier-Entscheidung (globaler Pool)
+  // ─────────────────────────────────────────────
+  const finalizeFreeDecision = async (takeFree: boolean) => {
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user || !freeChoiceDrink) return
 
-  const now = new Date().toISOString()
-  let freeQty = 0
-  let paidQty = 0
-  let toastText = ''
+    const now = new Date().toISOString()
+    let freeQty = 0
+    let paidQty = 0
 
-  if (takeFree) {
-    // Freibier prüfen
-    const { data: crate } = await supabase
-      .from('crates')
-      .select('id, quantity_remaining')
-      .eq('drink_id', freeChoiceDrink.id)
-      .eq('is_free', true)
-      .gt('quantity_remaining', 0)
-      .order('created_at', { ascending: false })
-      .limit(1)
+    if (takeFree) {
+      freeQty = Math.min(pendingQty, Math.max(0, freePool))
+      paidQty = Math.max(0, pendingQty - freeQty)
 
-    if (crate && crate.length > 0) {
-      const available = crate[0].quantity_remaining
-      freeQty = Math.min(available, pendingQty)
-      paidQty = pendingQty - freeQty
-
-      // Freibierbestand reduzieren
-      await supabase
-        .from('crates')
-        .update({ quantity_remaining: Math.max(0, available - freeQty) })
-        .eq('id', crate[0].id)
+      // 🔽 globalen Freibier-Pool reduzieren (RPC, security definer)
+      if (freeQty > 0) {
+        const { error: poolErr } = await supabase.rpc('terminal_decrement_free_pool', {
+          _id: FREE_POOL_ID,
+          _used: freeQty,
+        })
+        if (poolErr) {
+          console.error('terminal_decrement_free_pool error:', poolErr)
+          // Fallback: kein Abbruch – wir buchen den freien Teil trotzdem, um Nutzer nicht zu „bestrafen“
+        } else {
+          setFreePool((p) => Math.max(0, p - freeQty))
+        }
+      }
     } else {
-      addToast(`⚠️ Kein Freibier mehr für ${freeChoiceDrink.name} verfügbar`, 'error')
       paidQty = pendingQty
     }
-  } else {
-    paidQty = pendingQty
+
+    // ✅ Freibier-Teil eintragen
+    if (freeQty > 0) {
+      const { error: freeErr } = await supabase.from('consumptions').insert({
+        user_id: user.id,
+        drink_id: freeChoiceDrink.id,
+        quantity: freeQty,
+        unit_price_cents: 0,
+        source: 'single',
+        created_at: now,
+      })
+      if (freeErr) console.error('free insert error:', freeErr)
+    }
+
+    // ✅ Bezahlten Teil eintragen + Kontostand erhöhen
+    if (paidQty > 0) {
+      const lineTotal = freeChoiceDrink.price_cents * paidQty
+
+      const { error: payErr } = await supabase.from('consumptions').insert({
+        user_id: user.id,
+        drink_id: freeChoiceDrink.id,
+        quantity: paidQty,
+        unit_price_cents: freeChoiceDrink.price_cents,
+        source: 'single',
+        created_at: now,
+      })
+      if (payErr) {
+        console.error('paid insert error:', payErr)
+        addToast('❌ Zahlungsteil konnte nicht gebucht werden', 'error')
+      } else {
+        const { error: balErr } = await supabase.rpc('increment_balance', {
+          user_id_input: user.id,
+          amount_input: lineTotal,
+        })
+        if (balErr) {
+          console.error('increment_balance error:', balErr)
+          addToast('⚠️ Betrag konnte nicht abgebucht werden', 'error')
+        } else {
+          setBalance((b) => (b ?? 0) + lineTotal)
+        }
+      }
+    }
+
+    // 💬 Zusammenfassung
+    if (freeQty > 0 && paidQty > 0) {
+      addToast(`🎉 ${freeQty}× frei + 💰 ${paidQty}× bezahlt (${freeChoiceDrink.name})`)
+    } else if (freeQty > 0) {
+      addToast(`🎉 ${freeQty}× ${freeChoiceDrink.name} als Freibier verbucht`)
+    } else if (paidQty > 0) {
+      addToast(`💰 ${paidQty}× ${freeChoiceDrink.name} bezahlt verbucht`)
+    } else {
+      addToast('⚠️ Keine Buchung durchgeführt', 'error')
+    }
+
+    // Reset & Refresh
+    setFreeChoiceDrink(null)
+    setPendingQty(0)
+    setQuantity(1)
+    setSelectedDrink(null)
+    await loadStats()
   }
 
-  // ✅ Freibierteil eintragen
-  if (freeQty > 0) {
-    await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: freeChoiceDrink.id,
-      quantity: freeQty,
-      unit_price_cents: 0,
-      source: 'crate',
-      created_at: now,
-    })
-  }
-
-  // ✅ Bezahlten Teil eintragen
-  if (paidQty > 0) {
-    const totalCents = freeChoiceDrink.price_cents * paidQty
-    await supabase.from('consumptions').insert({
-      user_id: user.id,
-      drink_id: freeChoiceDrink.id,
-      quantity: paidQty,
-      unit_price_cents: freeChoiceDrink.price_cents,
-      source: 'single',
-      created_at: now,
-    })
-    await supabase.rpc('increment_balance', { user_id: user.id, amount: totalCents })
-  }
-
-  // 💬 Dynamische Zusammenfassung
-  if (freeQty > 0 && paidQty > 0) {
-    toastText = `🎉 ${freeQty}× Freibier + 💰 ${paidQty}× bezahlt (${freeChoiceDrink.name})`
-  } else if (freeQty > 0) {
-    toastText = `🎉 ${freeQty}× ${freeChoiceDrink.name} als Freibier verbucht`
-  } else if (paidQty > 0) {
-    toastText = `💰 ${paidQty}× ${freeChoiceDrink.name} bezahlt verbucht`
-  } else {
-    toastText = `⚠️ Keine Buchung durchgeführt`
-  }
-
-  addToast(toastText)
-
-  // 🔁 Reset & Refresh
-  setFreeChoiceDrink(null)
-  setPendingQty(0)
-  setQuantity(1)
-  setSelectedDrink(null)
-  await loadStats()
-  await fetchFreeCrates()
-}
-
-
-
-  // Kiste bereitstellen
+  // ─────────────────────────────────────────────
+  // Kiste bereitstellen (globaler Pool)
+  // ─────────────────────────────────────────────
   const openCratePopup = (type: 'paid' | 'own') => {
     if (!selectedDrink) return addToast('Bitte zuerst ein Getränk wählen', 'error')
     const isOwn = type === 'own'
@@ -262,45 +283,73 @@ const finalizeFreeDecision = async (takeFree: boolean) => {
     setPopup({
       title: isOwn ? 'Eigene Kiste bestätigen' : 'Kiste kaufen bestätigen',
       message: isOwn
-        ? '⚠️ Nur verbuchen, wenn die Kiste wirklich im Kühlraum steht!\n\nJetzt als Freibier-Kiste eintragen (0 €)?'
-        : `Diese Kiste wird als Freibier bereitgestellt und mit ${euro(cratePrice)} auf dein Konto verbucht.\n\nJetzt wirklich verbuchen?`,
-      onConfirm: () => handleCrateCreate(cratePrice),
+        ? `⚠️ Nur verbuchen, wenn die Kiste wirklich im Kühlraum steht!\n\nJetzt als Freibier-Kiste eintragen (+${BOTTLES_PER_CRATE} frei, 0 €)?`
+        : `Diese Kiste wird als Freibier für ALLE Getränke bereitgestellt (+${BOTTLES_PER_CRATE} frei)\nund mit ${euro(cratePrice)} auf dein Konto verbucht.\n\nJetzt wirklich verbuchen?`,
+      onConfirm: () => void handleCrateCreate(cratePrice),
     })
   }
 
   const handleCrateCreate = async (price_cents: number) => {
-    if (!selectedDrink) return
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user || !selectedDrink) return
 
-    await supabase.from('crates').insert({
-      drink_id: selectedDrink.id,
-      quantity_total: 20,
-      quantity_remaining: 20,
-      is_free: true,
-      created_by: user.id,
-      price_cents,
-      created_at: new Date().toISOString(),
+    // 1) Globalen Freibier-Pool erhöhen
+    // Trick: vorhandene RPC "decrement" mit negativem Wert nutzen, um zu erhöhen
+    const { error: poolErr } = await supabase.rpc('terminal_decrement_free_pool', {
+      _id: FREE_POOL_ID,
+      _used: -BOTTLES_PER_CRATE,
     })
+    if (poolErr) {
+      console.error('free_pool increment error:', poolErr)
+      addToast('❌ Konnte Freibier-Pool nicht erhöhen', 'error')
+      return
+    }
+    setFreePool((p) => p + BOTTLES_PER_CRATE)
 
-    if (price_cents > 0)
-      await supabase.rpc('increment_balance', { user_id: user.id, amount: price_cents })
+    // 2) Kontostand belasten (nur bei bezahlter Kiste)
+    if (price_cents > 0) {
+      const { error: balErr } = await supabase.rpc('increment_balance', {
+        user_id_input: user.id,
+        amount_input: price_cents,
+      })
+      if (balErr) {
+        console.error('increment_balance (crate) error:', balErr)
+        addToast('⚠️ Betrag für Kiste konnte nicht abgebucht werden', 'error')
+      } else {
+        setBalance((b) => (b ?? 0) + price_cents)
+      }
+    }
 
     addToast(
       price_cents > 0
-        ? `📦 Kiste ${selectedDrink.name} bereitgestellt (${euro(price_cents)})`
-        : `🧊 Eigene Kiste ${selectedDrink.name} (0 €)`
+        ? `📦 Kiste (${selectedDrink.name}) gekauft → +${BOTTLES_PER_CRATE} Freibier`
+        : `🧊 Eigene Kiste (${selectedDrink.name}) → +${BOTTLES_PER_CRATE} Freibier (0 €)`
     )
 
-    await loadStats()
-    await fetchFreeCrates()
+    // Optional: als „Buchung“ im Verlauf vermerken (nur UI, da keine eigene Tabelle)
+    setBookings((prev) => [
+      { created_at: new Date().toISOString(), text: price_cents > 0
+        ? `📦 Kiste ${selectedDrink.name} (${euro(price_cents)}) als Freibier bereitgestellt`
+        : `🧊 Eigene Kiste ${selectedDrink.name} (0 €) als Freibier bereitgestellt` },
+      ...prev
+    ])
+
+    setQuantity(1)
+    setSelectedDrink(null)
   }
+
+  // ─────────────────────────────────────────────
+  // UI
+  // ─────────────────────────────────────────────
+  const totalPrice = useMemo(() => (selectedDrink ? selectedDrink.price_cents * quantity : 0), [selectedDrink, quantity])
 
   return (
     <>
       <TopNav />
       <div className="pt-20 min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white px-4 pb-24">
         <div className="max-w-md mx-auto space-y-6">
+
           <section>
             <h2 className="text-xl font-semibold">💰 Kontostand</h2>
             <p className={`text-lg font-medium ${balance >= 0 ? 'text-red-400' : 'text-green-400'}`}>
@@ -310,6 +359,7 @@ const finalizeFreeDecision = async (takeFree: boolean) => {
 
           <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6">
             <h1 className="text-2xl font-semibold mb-4">🍺 Getränk verbuchen</h1>
+
             <div className="grid grid-cols-2 gap-2 mb-4">
               {drinks.map((d) => (
                 <button
@@ -342,18 +392,22 @@ const finalizeFreeDecision = async (takeFree: boolean) => {
               onClick={openConfirmDrinkPopup}
               className="w-full h-12 bg-white text-black rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50"
             >
-              Jetzt verbuchen
+              Jetzt verbuchen {selectedDrink ? `• ${euro(totalPrice)}` : ''}
             </button>
           </section>
 
-          {/* 📦 Kisten */}
+          {/* 🎉 Globaler Freibier-Pool */}
           <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 space-y-3">
-            <h2 className="text-xl font-semibold">📦 Kiste bereitstellen</h2>
-            {!selectedDrink && <p className="text-sm text-neutral-500">Bitte zuerst ein Getränk wählen.</p>}
+            <h2 className="text-xl font-semibold">🎉 Freibier-Pool (global)</h2>
+            <p className="text-sm text-neutral-300">
+              Verfügbar: <span className="font-semibold text-emerald-400">{freePool}</span> Flaschen für alle Getränke
+            </p>
+
+            {!selectedDrink && <p className="text-sm text-neutral-500">Wähle ein Getränk, um eine Kiste bereitzustellen.</p>}
             {selectedDrink && (
               <>
                 <p className="text-sm text-neutral-400">
-                  Kistenpreis {selectedDrink.name}: {euro(selectedDrink.crate_price_cents)}
+                  Kistenpreis {selectedDrink.name}: {euro(selectedDrink.crate_price_cents)} • {BOTTLES_PER_CRATE} Flaschen
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button onClick={() => openCratePopup('paid')} className="bg-blue-700 hover:bg-blue-800 py-3 rounded-lg font-medium">
@@ -365,23 +419,6 @@ const finalizeFreeDecision = async (takeFree: boolean) => {
                 </div>
               </>
             )}
-          </section>
-
-          {/* 🎉 Freibier-Kisten */}
-          <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6">
-            <h2 className="text-xl font-semibold mb-3">🎉 Aktive Freibier-Kisten</h2>
-            {freeCrates.length === 0 && <p className="text-neutral-500 text-sm">Keine aktiven Freibier-Kisten.</p>}
-            <ul className="space-y-2 text-sm">
-              {freeCrates.map((c) => {
-                const dn = Array.isArray(c.drinks) ? (c.drinks[0]?.name ?? 'Unbekannt') : c.drinks?.name
-                return (
-                  <li key={c.id} className="flex justify-between bg-green-900/30 border border-green-600 rounded-lg p-2">
-                    <span>{dn} • {c.quantity_remaining} übrig</span>
-                    <span className="text-neutral-400">🎉</span>
-                  </li>
-                )
-              })}
-            </ul>
           </section>
 
           {/* 🧾 Letzte Buchungen */}
@@ -437,14 +474,16 @@ const finalizeFreeDecision = async (takeFree: boolean) => {
               >
                 <h4 className="text-lg font-semibold mb-3">Freibier oder bezahlen?</h4>
                 <p className="text-sm text-neutral-300 mb-6">
-                  Für <span className="font-semibold text-white">{freeChoiceDrink.name}</span> ist Freibier verfügbar.<br />
-                  Du möchtest <span className="font-semibold">{pendingQty}</span> Stück verbuchen.
+                  Für den <span className="font-semibold text-white">globalen Freibier-Pool</span> sind aktuell&nbsp;
+                  <span className="font-semibold text-emerald-400">{freePool}</span> Flaschen verfügbar.
+                  <br />
+                  Du möchtest <span className="font-semibold">{pendingQty}</span> × {freeChoiceDrink.name} verbuchen.
                 </p>
                 <div className="flex flex-col sm:flex-row justify-center gap-3">
-                  <button onClick={() => finalizeFreeDecision(true)} className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white">🎉 Freibier nehmen</button>
+                  <button onClick={() => finalizeFreeDecision(true)} className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white">🎉 Freibier nutzen</button>
                   <button onClick={() => finalizeFreeDecision(false)} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white">💰 Bezahlen</button>
                 </div>
-                <button onClick={() => setFreeChoiceDrink(null)} className="mt-4 text-sm text-neutral-400 underline">Abbrechen</button>
+                <button onClick={() => { setFreeChoiceDrink(null); setPendingQty(0); }} className="mt-4 text-sm text-neutral-400 underline">Abbrechen</button>
               </motion.div>
             </motion.div>
           )}
