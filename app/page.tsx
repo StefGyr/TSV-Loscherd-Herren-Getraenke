@@ -19,20 +19,22 @@ export default function HomePage() {
   const [balance, setBalance] = useState<number>(0)
   const [bookings, setBookings] = useState<any[]>([])
   const [freePool, setFreePool] = useState<number>(0)
-  const [toasts, setToasts] = useState<any[]>([])
+  const [myWeekTotal, setMyWeekTotal] = useState(0)
   const [bierPrice, setBierPrice] = useState<number>(0)
   const [freeChoiceDrink, setFreeChoiceDrink] = useState<any | null>(null)
   const [pendingQty, setPendingQty] = useState<number>(0)
   const [popup, setPopup] = useState(false)
   const [freePopup, setFreePopup] = useState(false)
   const [partialPopup, setPartialPopup] = useState<{ free: number; pay: number } | null>(null)
+  const [toasts, setToasts] = useState<any[]>([])
 
-  const addToast = (t: string, type: 'success' | 'error' = 'success') => {
+  const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
-    setToasts((p) => [...p, { id, t, type }])
-    setTimeout(() => setToasts((p) => p.filter((x) => x.id !== id)), 3000)
+    setToasts((p) => [...p, { id, text, type }])
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000)
   }
 
+  // ---------------- Loader ----------------
   const refreshBookings = async () => {
     const { data: auth } = await supabase.auth.getUser()
     const user = auth?.user
@@ -56,6 +58,32 @@ export default function HomePage() {
     )
   }
 
+  const loadMyWeekStats = async () => {
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user) return
+
+    const from = new Date()
+    const day = from.getDay()
+    const diff = from.getDate() - day + (day === 0 ? -6 : 1)
+    const monday = new Date(from.setDate(diff))
+    monday.setHours(0, 0, 0, 0)
+    const to = new Date(monday)
+    to.setDate(to.getDate() + 7)
+
+    const { data, error } = await supabase
+      .from('consumptions')
+      .select('quantity')
+      .eq('user_id', user.id)
+      .gte('created_at', monday.toISOString())
+      .lt('created_at', to.toISOString())
+
+    if (!error && data) {
+      const total = data.reduce((sum: number, r: any) => sum + (r.quantity || 0), 0)
+      setMyWeekTotal(total)
+    }
+  }
+
   useEffect(() => {
     const init = async () => {
       const { data: drinks } = await supabase.from('drinks').select('*').order('name')
@@ -73,7 +101,7 @@ export default function HomePage() {
       const pool = await supabase.from(FREE_POOL_TABLE).select('quantity_remaining').eq('id', FREE_POOL_ID).maybeSingle()
       setFreePool(pool.data?.quantity_remaining ?? 0)
 
-      await refreshBookings()
+      await Promise.all([refreshBookings(), loadMyWeekStats()])
     }
     init()
   }, [])
@@ -102,7 +130,7 @@ export default function HomePage() {
     setQuantity(1)
     setPopup(false)
     setFreeChoiceDrink(null)
-    await refreshBookings()
+    await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
   // ---------------- Freibier ----------------
@@ -119,7 +147,6 @@ export default function HomePage() {
       return
     }
 
-    // Vollständige Freibierbuchung
     const { error: insErr } = await supabase.from('consumptions').insert({
       user_id: user.id,
       drink_id: drink.id,
@@ -134,7 +161,7 @@ export default function HomePage() {
     setFreePool((p) => Math.max(0, p - freeQty))
     addToast(`🎉 ${freeQty}× ${drink.name} als Freibier verbucht`)
     setFreeChoiceDrink(null)
-    await refreshBookings()
+    await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
   const confirmPartialFreeBooking = async () => {
@@ -146,7 +173,6 @@ export default function HomePage() {
 
     const now = new Date().toISOString()
 
-    // Freibierteil
     if (free > 0) {
       await supabase.from('consumptions').insert({
         user_id: user.id,
@@ -159,7 +185,6 @@ export default function HomePage() {
       await supabase.rpc('terminal_decrement_free_pool', { _id: FREE_POOL_ID, _used: free })
     }
 
-    // Bezahlter Teil
     if (pay > 0) {
       await supabase.from('consumptions').insert({
         user_id: user.id,
@@ -178,7 +203,7 @@ export default function HomePage() {
     setFreePool((p) => Math.max(0, p - free))
     setPartialPopup(null)
     setFreeChoiceDrink(null)
-    await refreshBookings()
+    await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
   const handleProvideFreeDrinks = async () => {
@@ -191,25 +216,26 @@ export default function HomePage() {
     setBalance((b) => b + bierPrice)
     addToast('🎉 20 Freigetränke bereitgestellt!')
     setFreePopup(false)
+    await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
-  // ---------------- UI ----------------
   const totalPrice = useMemo(() => (selectedDrink ? selectedDrink.price_cents * quantity : 0), [selectedDrink, quantity])
 
+  // ---------------- UI ----------------
   return (
     <>
       <TopNav />
       <div className="pt-20 min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white px-4 pb-24">
         <div className="max-w-md mx-auto space-y-6">
-          {/* Karten im Profilstil */}
+          {/* Karten */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             <Card icon={<PiggyBank />} color="from-rose-900/80 to-rose-800/40" label="Kontostand" value={euro(balance)} />
-            <Card icon={<Gift />} color="from-green-900/80 to-green-800/40" label="Freibier" value={`${freePool}`} />
-            <Card icon={<Beer />} color="from-purple-900/80 to-purple-800/40" label="Buchungen" value={`${bookings.length}`} />
+            <Card icon={<Beer />} color="from-green-900/80 to-green-800/40" label="Gesamtverbrauch" value={`${myWeekTotal}`} />
+            <Card icon={<Gift />} color="from-purple-900/80 to-purple-800/40" label="Freibier" value={`${freePool}`} />
             <Card icon={<Wallet />} color="from-blue-900/80 to-blue-800/40" label="Letzte Buchung" value={bookings[0] ? shortDate(bookings[0].created_at) : '—'} />
           </div>
 
-          {/* Getränkeauswahl */}
+          {/* Getränke */}
           <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6">
             <h1 className="text-2xl font-semibold mb-4">🍺 Getränk verbuchen</h1>
             <div className="grid grid-cols-2 gap-2 mb-4">
@@ -259,6 +285,7 @@ export default function HomePage() {
             </button>
           </div>
 
+          {/* Letzte Buchungen */}
           <section className="mt-6">
             <h2 className="text-xl font-semibold mb-2">🧾 Letzte Buchungen</h2>
             <ul className="text-sm divide-y divide-neutral-800">
@@ -325,11 +352,12 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
+        {/* Toasts */}
         <div className="fixed bottom-5 right-5 flex flex-col gap-2 z-50">
           <AnimatePresence>
             {toasts.map((t) => (
               <motion.div key={t.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className={`px-4 py-2 rounded-lg text-sm shadow-lg ${t.type === 'error' ? 'bg-red-700' : 'bg-green-700'}`}>
-                {t.t}
+                {t.text}
               </motion.div>
             ))}
           </AnimatePresence>
@@ -339,6 +367,7 @@ export default function HomePage() {
   )
 }
 
+// Cards im Profil-Stil
 function Card({ icon, color, label, value }: any) {
   return (
     <div className={`p-4 rounded-2xl bg-gradient-to-br ${color} text-white shadow-md flex flex-col justify-center`}>
@@ -351,6 +380,7 @@ function Card({ icon, color, label, value }: any) {
   )
 }
 
+// Generisches Popup
 function Popup({ title, message, onCancel, onConfirm }: any) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 flex items-center justify-center bg-black/70 z-50">
