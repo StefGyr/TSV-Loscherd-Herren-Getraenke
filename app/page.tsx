@@ -23,6 +23,8 @@ export default function HomePage() {
   const [freePopup, setFreePopup] = useState(false)
   const [toasts, setToasts] = useState<any[]>([])
   const [bierPrice, setBierPrice] = useState<number>(0)
+  const [freeChoiceDrink, setFreeChoiceDrink] = useState<any | null>(null)
+  const [pendingQty, setPendingQty] = useState<number>(0)
 
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -30,7 +32,7 @@ export default function HomePage() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000)
   }
 
-  // ░░ Laden von Daten ░░
+  // ░░ Laden der Daten ░░
   useEffect(() => {
     const init = async () => {
       const { data: drinks } = await supabase.from('drinks').select('*').order('name')
@@ -110,6 +112,41 @@ export default function HomePage() {
     setPopup(false)
   }
 
+  // ░░ Freibier verbuchen ░░
+  const handleFreeBooking = async (drink: any, qty: number) => {
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user) return
+    const now = new Date().toISOString()
+    const freeQty = Math.min(qty, freePool)
+
+    const { error: freeErr } = await supabase.from('consumptions').insert({
+      user_id: user.id,
+      drink_id: drink.id,
+      quantity: freeQty,
+      unit_price_cents: 0,
+      source: 'single',
+      created_at: now,
+    })
+    if (freeErr) {
+      console.error('free insert error:', freeErr)
+      addToast('❌ Freibier-Buchung fehlgeschlagen', 'error')
+      return
+    }
+
+    const { error: poolErr } = await supabase.rpc('terminal_decrement_free_pool', {
+      _id: FREE_POOL_ID,
+      _used: freeQty,
+    })
+    if (poolErr) console.error('terminal_decrement_free_pool error:', poolErr)
+    setFreePool((p) => Math.max(0, p - freeQty))
+    addToast(`🎉 ${freeQty}× ${drink.name} als Freibier verbucht`)
+    setFreeChoiceDrink(null)
+    setPendingQty(0)
+    setQuantity(1)
+    setSelectedDrink(null)
+  }
+
   // ░░ Freibier bereitstellen ░░
   const handleProvideFreeDrinks = async () => {
     const { data: auth } = await supabase.auth.getUser()
@@ -175,7 +212,14 @@ export default function HomePage() {
             )}
             <button
               disabled={!selectedDrink}
-              onClick={() => setPopup(true)}
+              onClick={() => {
+                if (freePool > 0) {
+                  setFreeChoiceDrink(selectedDrink)
+                  setPendingQty(quantity)
+                } else {
+                  setPopup(true)
+                }
+              }}
               className="w-full h-12 bg-white text-black rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50"
             >
               Jetzt verbuchen {selectedDrink ? `• ${euro(totalPrice)}` : ''}
@@ -206,7 +250,7 @@ export default function HomePage() {
           </section>
         </div>
 
-        {/* Popup Buchung */}
+        {/* Buchung bestätigen */}
         <AnimatePresence>
           {popup && selectedDrink && (
             <Popup
@@ -218,7 +262,37 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {/* Popup Freibier */}
+        {/* Freibier oder bezahlen */}
+        <AnimatePresence>
+          {freeChoiceDrink && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 flex items-center justify-center bg-black/70 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-neutral-900 p-6 rounded-2xl text-center shadow-2xl border border-neutral-700 max-w-sm w-full"
+              >
+                <h3 className="text-xl font-semibold mb-2">🎉 Freibier oder bezahlen?</h3>
+                <p className="text-sm text-neutral-300 mb-6">
+                  Es sind {freePool} Flaschen im globalen Freibier-Pool.<br />
+                  Du möchtest {pendingQty}× {freeChoiceDrink.name} verbuchen.
+                </p>
+                <div className="flex justify-center gap-4">
+                  <button onClick={() => handleFreeBooking(freeChoiceDrink, pendingQty)} className="px-4 py-2 bg-green-700 rounded hover:bg-green-800">
+                    🎉 Freibier nutzen
+                  </button>
+                  <button onClick={() => handlePaidBooking(freeChoiceDrink, pendingQty)} className="px-4 py-2 bg-blue-700 rounded hover:bg-blue-800">
+                    💰 Bezahlen
+                  </button>
+                </div>
+                <button onClick={() => setFreeChoiceDrink(null)} className="mt-4 text-sm text-neutral-400 underline">Abbrechen</button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Popup Freibier bereitstellen */}
         <AnimatePresence>
           {freePopup && (
             <Popup
