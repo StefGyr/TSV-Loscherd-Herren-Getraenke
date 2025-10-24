@@ -350,12 +350,31 @@ export default function HomePage() {
       <div className="pt-20 min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white px-4 pb-24">
         <div className="max-w-md mx-auto space-y-6">
 
-          <section>
-            <h2 className="text-xl font-semibold">💰 Kontostand</h2>
-            <p className={`text-lg font-medium ${balance >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-              {balance >= 0 ? '-' : '+'}{Math.abs(balance / 100).toFixed(2)} €
-            </p>
-          </section>
+          
+{/* 🔹 Statistikkarten (mobile 2x2 Grid) */}
+<div className="grid grid-cols-2 gap-3 mb-6">
+  <div className="rounded-2xl bg-gradient-to-br from-rose-900/80 to-rose-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">💰</div>
+    <div className="text-xs text-neutral-300">Kontostand</div>
+    <div className="text-base font-semibold">{balance >= 0 ? '-' : '+'}{Math.abs(balance / 100).toFixed(2)} €</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-green-900/80 to-green-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">🍺</div>
+    <div className="text-xs text-neutral-300">Gesamtverbrauch</div>
+    <div className="text-base font-semibold">{bookings.length}</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-emerald-800/80 to-emerald-700/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">🎁</div>
+    <div className="text-xs text-neutral-300">Freibier</div>
+    <div className="text-base font-semibold">{freePool}</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-blue-900/80 to-blue-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">💶</div>
+    <div className="text-xs text-neutral-300">Letzte Zahlung</div>
+    <div className="text-base font-semibold">{bookings[0] ? shortDate(bookings[0].created_at) : '—'}</div>
+  </div>
+</div>
+
 
           <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6">
             <h1 className="text-2xl font-semibold mb-4">🍺 Getränk verbuchen</h1>
@@ -423,17 +442,31 @@ export default function HomePage() {
   </section>
 )}
 {/* 🧾 Letzte Buchungen */}
-          <section>
-            <h2 className="text-xl font-semibold mb-2">🧾 Letzte Buchungen</h2>
-            <ul className="text-sm divide-y divide-neutral-800">
-              {bookings.length === 0 && <li className="py-2 text-neutral-500">Keine Buchungen</li>}
-              {bookings.map((b, i) => (
-                <li key={i} className="py-2 flex justify-between">
-                  <span>{shortDate(b.created_at)} {b.text}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
+          
+{/* 🔹 Statistikkarten (mobile 2x2 Grid) */}
+<div className="grid grid-cols-2 gap-3 mb-6">
+  <div className="rounded-2xl bg-gradient-to-br from-rose-900/80 to-rose-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">💰</div>
+    <div className="text-xs text-neutral-300">Kontostand</div>
+    <div className="text-base font-semibold">{balance >= 0 ? '-' : '+'}{Math.abs(balance / 100).toFixed(2)} €</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-green-900/80 to-green-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">🍺</div>
+    <div className="text-xs text-neutral-300">Gesamtverbrauch</div>
+    <div className="text-base font-semibold">{bookings.length}</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-emerald-800/80 to-emerald-700/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">🎁</div>
+    <div className="text-xs text-neutral-300">Freibier</div>
+    <div className="text-base font-semibold">{freePool}</div>
+  </div>
+  <div className="rounded-2xl bg-gradient-to-br from-blue-900/80 to-blue-800/40 p-3 text-center shadow-md">
+    <div className="text-2xl mb-1">💶</div>
+    <div className="text-xs text-neutral-300">Letzte Zahlung</div>
+    <div className="text-base font-semibold">{bookings[0] ? shortDate(bookings[0].created_at) : '—'}</div>
+  </div>
+</div>
+
         </div>
 
         {/* Popups */}
