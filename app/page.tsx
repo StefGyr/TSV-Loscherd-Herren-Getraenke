@@ -21,12 +21,14 @@ export default function HomePage() {
   const [freePool, setFreePool] = useState<number>(0)
   const [myWeekTotal, setMyWeekTotal] = useState(0)
   const [bierPrice, setBierPrice] = useState<number>(0)
+
+  // Freibier-/Popup-States
   const [freeChoiceDrink, setFreeChoiceDrink] = useState<any | null>(null)
   const [pendingQty, setPendingQty] = useState<number>(0)
-  const [popup, setPopup] = useState(false)
-  const [freePopup, setFreePopup] = useState(false)
-  const [partialPopup, setPartialPopup] = useState<{ free: number; pay: number } | null>(null)
-  const [toasts, setToasts] = useState<any[]>([])
+  const [popup, setPopup] = useState(false) // Bezahlen-Bestätigung
+  const [freePopup, setFreePopup] = useState(false) // Freigetränke bereitstellen
+  const [partialPopup, setPartialPopup] = useState<{ free: number; pay: number } | null>(null) // Teil-Freibier
+  const [toasts, setToasts] = useState<{ id: number; text: string; type: 'success' | 'error' }[]>([])
 
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -106,7 +108,7 @@ export default function HomePage() {
     init()
   }, [])
 
-  // ---------------- Buchung ----------------
+  // ---------------- Buchung (Bezahlen) ----------------
   const handlePaidBooking = async (drink: any, qty: number) => {
     const { data: auth } = await supabase.auth.getUser()
     const user = auth?.user
@@ -133,19 +135,21 @@ export default function HomePage() {
     await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
-  // ---------------- Freibier ----------------
+  // ---------------- Freibier (vollständig oder teilweise) ----------------
   const handleFreeBooking = async (drink: any, qty: number) => {
-    const { data: auth } = await supabase.auth.getUser()
-    const user = auth?.user
-    if (!user) return
-
     const freeQty = Math.min(qty, freePool)
     const payQty = qty - freeQty
 
+    // Teil-Freibier → erst Info-Popup, dann aufteilen
     if (payQty > 0 && freeQty > 0) {
       setPartialPopup({ free: freeQty, pay: payQty })
       return
     }
+
+    // vollständige Freibierbuchung
+    const { data: auth } = await supabase.auth.getUser()
+    const user = auth?.user
+    if (!user) return
 
     const { error: insErr } = await supabase.from('consumptions').insert({
       user_id: user.id,
@@ -159,20 +163,24 @@ export default function HomePage() {
 
     await supabase.rpc('terminal_decrement_free_pool', { _id: FREE_POOL_ID, _used: freeQty })
     setFreePool((p) => Math.max(0, p - freeQty))
+
     addToast(`🎉 ${freeQty}× ${drink.name} als Freibier verbucht`)
     setFreeChoiceDrink(null)
+    setSelectedDrink(null) // Auswahl nach Freibierbuchung zurücksetzen
     await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
   const confirmPartialFreeBooking = async () => {
     if (!freeChoiceDrink || !partialPopup) return
     const { free, pay } = partialPopup
+
     const { data: auth } = await supabase.auth.getUser()
     const user = auth?.user
     if (!user) return
 
     const now = new Date().toISOString()
 
+    // Freibier-Teil
     if (free > 0) {
       await supabase.from('consumptions').insert({
         user_id: user.id,
@@ -183,8 +191,10 @@ export default function HomePage() {
         created_at: now,
       })
       await supabase.rpc('terminal_decrement_free_pool', { _id: FREE_POOL_ID, _used: free })
+      setFreePool((p) => Math.max(0, p - free))
     }
 
+    // Bezahl-Teil
     if (pay > 0) {
       await supabase.from('consumptions').insert({
         user_id: user.id,
@@ -200,12 +210,13 @@ export default function HomePage() {
       addToast(`💰 ${pay}× bezahlt, 🎉 ${free}× frei (${freeChoiceDrink.name})`)
     }
 
-    setFreePool((p) => Math.max(0, p - free))
     setPartialPopup(null)
     setFreeChoiceDrink(null)
+    setSelectedDrink(null) // Auswahl auch hier zurücksetzen
     await Promise.all([refreshBookings(), loadMyWeekStats()])
   }
 
+  // ---------------- Freigetränke bereitstellen ----------------
   const handleProvideFreeDrinks = async () => {
     const { data: auth } = await supabase.auth.getUser()
     const user = auth?.user
@@ -227,7 +238,7 @@ export default function HomePage() {
       <TopNav />
       <div className="pt-20 min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white px-4 pb-24">
         <div className="max-w-md mx-auto space-y-6">
-          {/* Karten */}
+          {/* Karten im Profilstil */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             <Card icon={<PiggyBank />} color="from-rose-900/80 to-rose-800/40" label="Kontostand" value={euro(balance)} />
             <Card icon={<Beer />} color="from-green-900/80 to-green-800/40" label="Gesamtverbrauch" value={`${myWeekTotal}`} />
@@ -253,6 +264,7 @@ export default function HomePage() {
                 </button>
               ))}
             </div>
+
             {selectedDrink && (
               <div className="flex justify-between mb-3">
                 <div className="flex items-center gap-3">
@@ -263,6 +275,7 @@ export default function HomePage() {
                 <span className="text-sm text-neutral-400">{euro(selectedDrink.price_cents)} / Stück</span>
               </div>
             )}
+
             <button
               disabled={!selectedDrink}
               onClick={() => {
@@ -356,7 +369,13 @@ export default function HomePage() {
         <div className="fixed bottom-5 right-5 flex flex-col gap-2 z-50">
           <AnimatePresence>
             {toasts.map((t) => (
-              <motion.div key={t.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className={`px-4 py-2 rounded-lg text-sm shadow-lg ${t.type === 'error' ? 'bg-red-700' : 'bg-green-700'}`}>
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className={`px-4 py-2 rounded-lg text-sm shadow-lg ${t.type === 'error' ? 'bg-red-700' : 'bg-green-700'}`}
+              >
                 {t.text}
               </motion.div>
             ))}
@@ -368,12 +387,12 @@ export default function HomePage() {
 }
 
 // Cards im Profil-Stil
-function Card({ icon, color, label, value }: any) {
+function Card({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: string }) {
   return (
     <div className={`p-4 rounded-2xl bg-gradient-to-br ${color} text-white shadow-md flex flex-col justify-center`}>
       <div className="flex items-center gap-3 mb-1">
         <div className="text-2xl">{icon}</div>
-        <div className="text-sm text-neutral-300">{label}</div>
+        <div className="text-sm text-neutral-200">{label}</div>
       </div>
       <div className="text-2xl font-bold">{value}</div>
     </div>
@@ -381,10 +400,22 @@ function Card({ icon, color, label, value }: any) {
 }
 
 // Generisches Popup
-function Popup({ title, message, onCancel, onConfirm }: any) {
+function Popup({
+  title, message, onCancel, onConfirm,
+}: { title: string; message: string; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 flex items-center justify-center bg-black/70 z-50">
-      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-neutral-900 p-6 rounded-2xl text-center shadow-2xl border border-neutral-700 max-w-sm w-full">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 flex items-center justify-center bg-black/70 z-50"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-neutral-900 p-6 rounded-2xl text-center shadow-2xl border border-neutral-700 max-w-sm w-full"
+      >
         <h3 className="text-xl font-semibold mb-2">{title}</h3>
         <p className="text-sm text-neutral-300 mb-6 whitespace-pre-line">{message}</p>
         <div className="flex justify-center gap-4">
