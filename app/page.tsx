@@ -106,6 +106,28 @@ export default function HomePage() {
       await Promise.all([refreshBookings(), loadMyWeekStats()])
     }
     init()
+
+// 🔁 Auto-Refresh alle 60 Sekunden
+  const interval = setInterval(() => {
+    init()
+  }, 60000)
+
+  // 📅 Wenn ein neuer Tag beginnt → Seite komplett neu laden
+  const checkDayChange = setInterval(() => {
+    const now = new Date()
+    const saved = sessionStorage.getItem('lastDay')
+    const today = now.toDateString()
+    if (saved && saved !== today) {
+      window.location.reload()
+    }
+    sessionStorage.setItem('lastDay', today)
+  }, 30000)
+
+  return () => {
+    clearInterval(interval)
+    clearInterval(checkDayChange)
+  }
+    
   }, [])
 
   // ---------------- Buchung (Bezahlen) ----------------
