@@ -25,19 +25,43 @@ export default function ActivityPage() {
   const [weekData, setWeekData] = useState<DailyStat[]>([])
   const [recent, setRecent] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
+
+      // 🧑‍💻 Aktuellen Nutzer prüfen
+      const { data: auth } = await supabase.auth.getUser()
+      const user = auth?.user
+      if (!user) return
+
+      // 👑 Admin-Status prüfen
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      const admin = prof?.is_admin === true
+      setIsAdmin(admin)
+
       const now = new Date()
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // Lade Buchungen der letzten 7 Tage
-      const { data, error } = await supabase
+      // 🔹 Basisabfrage (letzte 7 Tage)
+      let query = supabase
         .from('consumptions')
         .select('created_at, quantity, drinks(name), profiles(first_name,last_name)')
         .gte('created_at', startOfWeek.toISOString())
+
+      // Wenn kein Admin → nur eigene Buchungen anzeigen
+      if (!admin) {
+        query = query.eq('user_id', user.id)
+      }
+
+      const { data, error } = await query
 
       if (error) {
         console.error(error)
@@ -78,11 +102,17 @@ export default function ActivityPage() {
         .reverse()
 
       // 🧾 Letzte Verbuchungen (10)
-      const { data: last } = await supabase
+      let lastQuery = supabase
         .from('consumptions')
         .select('created_at, quantity, drinks(name), profiles(first_name,last_name)')
         .order('created_at', { ascending: false })
         .limit(10)
+
+      if (!admin) {
+        lastQuery = lastQuery.eq('user_id', user.id)
+      }
+
+      const { data: last } = await lastQuery
 
       setTodayCount(todaySum)
       setTodayDrinks(todayDrinksList)
@@ -100,7 +130,9 @@ export default function ActivityPage() {
       <AdminNav />
 
       <div className="max-w-6xl mx-auto p-6 pt-10 space-y-10">
-        <h1 className="text-2xl font-bold">📅 Tages- & Wochenaktivität</h1>
+        <h1 className="text-2xl font-bold">
+          {isAdmin ? '📊 Gesamtaktivität (Admin)' : '📅 Deine Aktivität'}
+        </h1>
 
         {loading ? (
           <p className="text-gray-400 text-sm">⏳ Lade Aktivitätsdaten...</p>
@@ -113,12 +145,18 @@ export default function ActivityPage() {
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <ActivityCard title="Verbuchungen heute" value={todayCount.toString()} />
-                    <ActivityCard title="Unterschiedliche Getränke" value={todayDrinks.length.toString()} />
+                    <ActivityCard
+                      title="Unterschiedliche Getränke"
+                      value={todayDrinks.length.toString()}
+                    />
                   </div>
                   <h3 className="text-sm text-gray-300 mb-2">Meist verbuchte Getränke:</h3>
                   <ul className="space-y-1 text-sm">
                     {todayDrinks.map((d, i) => (
-                      <li key={i} className="flex justify-between border-b border-gray-800 py-1">
+                      <li
+                        key={i}
+                        className="flex justify-between border-b border-gray-800 py-1"
+                      >
                         <span>{d.name}</span>
                         <span className="text-green-400 font-semibold">{d.qty}x</span>
                       </li>
@@ -160,7 +198,9 @@ export default function ActivityPage() {
 
             {/* 🔹 Letzte Verbuchungen */}
             <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
-              <h2 className="text-lg font-semibold mb-3">🧾 Letzte Verbuchungen</h2>
+              <h2 className="text-lg font-semibold mb-3">
+                🧾 Letzte Verbuchungen {isAdmin ? '(alle Nutzer)' : '(deine)'}
+              </h2>
               {recent.length === 0 ? (
                 <p className="text-gray-400 text-sm">Keine Buchungen gefunden.</p>
               ) : (
