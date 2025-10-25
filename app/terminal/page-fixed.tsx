@@ -1,4 +1,3 @@
-
 'use client'
 
 /**
@@ -225,11 +224,16 @@ export default function TopTerminalPage() {
 
   const loadMyWeekStats = useCallback(async (uid: string) => {
     const from = startOfWeekMonday()
+    const to = new Date(from)
+    to.setDate(to.getDate() + 7)
+
     const { data, error } = await supabase
       .from('consumptions')
       .select('quantity')
       .eq('user_id', uid)
       .gte('created_at', from.toISOString())
+      .lt('created_at', to.toISOString())
+
     if (error) {
       console.error('Fehler WeekStats:', error)
       return
@@ -238,26 +242,34 @@ export default function TopTerminalPage() {
   }, [])
 
   const loadFavoriteDrink = useCallback(async (uid: string) => {
-    const { data, error } = await supabase
-      .from('consumptions')
-      .select('quantity, drinks(name)')
-      .eq('user_id', uid)
-    if (error) {
-      console.error('Fehler Fav:', error)
-      return
-    }
-    if (!data?.length) return setFavoriteDrink('—')
-    const count: Record<string, number> = {}
-    for (const r of data) {
-      const name =
-        (Array.isArray(r.drinks)
-          ? r.drinks[0]?.name
-          : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
-      count[name] = (count[name] || 0) + (r.quantity || 0)
-    }
-    const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
-    setFavoriteDrink(fav ? fav[0] : '—')
-  }, [])
+  const { data, error } = await supabase
+    .from('consumptions')
+    .select('quantity, drinks(name)')
+    .eq('user_id', uid)
+
+  if (error) {
+    console.error('Fehler Fav:', error)
+    return
+  }
+  if (!data?.length) {
+    setFavoriteDrink('—')
+    return
+  }
+
+  const count: Record<string, number> = {} // ✅ korrekt initialisiert
+
+  for (const r of data) {
+    const name =
+      (Array.isArray(r.drinks)
+        ? r.drinks[0]?.name
+        : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
+    count[name] = (count[name] || 0) + (r.quantity || 0)
+  }
+
+  const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
+  setFavoriteDrink(fav ? fav[0] : '—')
+}, [])
+
 
   // -----------------------------
   // Effekte
@@ -288,8 +300,9 @@ export default function TopTerminalPage() {
       })
     }, 1000)
     const reset = () => setTimer(60)
-    window.addEventListener('click', reset)
-    window.addEventListener('keydown', reset)
+    window.addEventListener('click', reset, { passive: true })
+    window.addEventListener('keydown', reset, { passive: true })
+
     return () => {
       clearInterval(countdown)
       window.removeEventListener('click', reset)
@@ -316,6 +329,8 @@ export default function TopTerminalPage() {
     setUser({ id: match.id, first_name: match.first_name, last_name: match.last_name, pin: match.pin, open_balance_cents: match.open_balance_cents ?? 0 })
     setPin('')
     setStep('overview')
+    setTimer(60) // 🔹 Timer sicher zurücksetzen
+
     await Promise.all([
       loadMyWeekStats(match.id),
       loadFavoriteDrink(match.id),
@@ -368,6 +383,8 @@ export default function TopTerminalPage() {
 
   const confirmCheckout = useCallback(async () => {
     if (!user) return
+
+    // Sammle Inserts & Zähler
     const inserts: any[] = []
     let freeUsed = 0
     let anySpezi = false
@@ -397,28 +414,46 @@ export default function TopTerminalPage() {
       }
     }
 
+    // Kontostand per RPC erhöhen (nur zahlpflichtiger Teil)
+    if (checkoutTotals.payCents > 0) {
+      const { data, error: balanceError } = await supabase.rpc('increment_balance', {
+        user_id_input: user.id,
+        amount_input: checkoutTotals.payCents
+      })
+      console.log('RPC Ergebnis increment_balance:', { data, balanceError })
+      if (balanceError) {
+        console.error('Fehler beim Aktualisieren des Kontostands:', balanceError)
+      } else {
+        setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
+      }
+    }
+
+    // Einfügen aller Buchungen via SECURITY DEFINER RPC
     if (inserts.length > 0) {
-      const { error } = await supabase.from('consumptions').insert(inserts)
-      if (error) {
-        console.error('Insert error', error)
+      const { error: rpcErr1 } = await supabase.rpc('terminal_insert_consumptions', {
+        _rows: inserts as any,
+      })
+      if (rpcErr1) {
+        console.error('RPC terminal_insert_consumptions error:', rpcErr1)
         showToast('❌ Buchung fehlgeschlagen')
         return
       }
     }
 
-    // globalen Freibier-Pool reduzieren
+    // globalen Freibier-Pool reduzieren (via RPC)
     if (freeUsed > 0) {
-      const { data: poolRow } = await supabase
-        .from(FREE_POOL_TABLE)
-        .select('id, quantity_remaining')
-        .eq('id', FREE_POOL_ID)
-        .maybeSingle()
-      const current = poolRow?.quantity_remaining ?? 0
-      const newQty = Math.max(0, current - freeUsed)
-      await supabase.from(FREE_POOL_TABLE).update({ quantity_remaining: newQty }).eq('id', FREE_POOL_ID)
-      setFreePool(newQty)
+      const { error: rpcErr2 } = await supabase.rpc('terminal_decrement_free_pool', {
+        _id: FREE_POOL_ID,
+        _used: freeUsed,
+      })
+      if (rpcErr2) {
+        console.error('RPC terminal_decrement_free_pool error:', rpcErr2)
+      } else {
+        setFreePool(p => Math.max(0, p - freeUsed))
+      }
     }
 
+    // UI aufräumen
     setCheckoutLines([])
     setPopup(null)
     setDrinks(list => list.map(d => ({ ...d, qty: 0 })))
@@ -429,7 +464,7 @@ export default function TopTerminalPage() {
     logoutTimer.current = setTimeout(() => {
       void startLogoutWithQuote(anySpezi)
     }, 5000)
-  }, [user, checkoutLines, showToast])
+  }, [user, checkoutLines, checkoutTotals.payCents, showToast])
 
   // -----------------------------
   // Kiste kaufen (pro Drink) – kein Freibierabzug
@@ -441,20 +476,40 @@ export default function TopTerminalPage() {
 
   const buyCrateNow = useCallback(async () => {
     if (!user || !selectedDrink) return
-    const { error } = await supabase.from('consumptions').insert({
+
+    const rows = [{
       user_id: user.id,
       drink_id: selectedDrink.id,
       quantity: BOTTLES_PER_CRATE,
       unit_price_cents: selectedDrink.crate_price_cents,
-      source: 'crate',
+      source: 'crate' as const,
+    }]
+
+    // Insert via SECURITY DEFINER RPC
+    const { error: rpcErr3 } = await supabase.rpc('terminal_insert_consumptions', {
+      _rows: rows as any,
     })
-    if (error) {
-      console.error(error)
+    if (rpcErr3) {
+      console.error('RPC terminal_insert_consumptions (crate) error:', rpcErr3)
       showToast('❌ Kiste konnte nicht gebucht werden')
       return
     }
+
     setPopup(null)
     showToast(`✅ Kiste ${selectedDrink.name} gebucht`)
+
+    // Kontostand erhöhen um Kistenpreis
+    const { error: crateBalanceError } = await supabase.rpc('increment_balance', {
+      user_id_input: user.id,
+      amount_input: selectedDrink.crate_price_cents
+    })
+    if (crateBalanceError) {
+      console.error('Fehler beim Aktualisieren des Kontostands (Kiste):', crateBalanceError)
+    } else {
+      setUser(prev =>
+        prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + selectedDrink.crate_price_cents } : prev
+      )
+    }
 
     // 5s → Spruch
     setTimeout(() => {
@@ -592,7 +647,6 @@ export default function TopTerminalPage() {
                         <div className="w-12 text-center text-xl tabular-nums select-none">{d.qty ?? 0}</div>
                         <button onClick={() => incQty(d)} className="w-12 h-12 rounded-xl bg-emerald-700 text-white text-2xl leading-none">＋</button>
                         {/* Optional: Einzel / Freibier-Kontext-Button je Drink */}
-                        <button onClick={() => { setSelectedDrink(d); setPopup('checkout'); }} className="hidden sm:inline-flex px-3 py-2 rounded-lg bg-green-700/80 hover:bg-green-600 text-sm">📤 Einzel / Freibier</button>
                         <button onClick={() => openCrateInfo(d)} className="px-3 py-2 rounded-lg bg-blue-700/80 hover:bg-blue-600 text-sm">🧊 Kiste kaufen</button>
                       </div>
                     </div>
