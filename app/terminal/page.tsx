@@ -559,7 +559,15 @@ const rows = [{
               <div className="mt-4 p-3 rounded-lg bg-neutral-800 flex flex-wrap gap-6 text-sm">
                 <div>Freibier genutzt: <b>{checkoutTotals.freeUsed}</b></div>
                 <div>Verbleibendes Freibier: <b>{checkoutTotals.remainingPool}</b></div>
-                <div>Gesamtsumme: <b>{euro(checkoutTotals.payCents)}</b></div>
+                <div>
+  Gesamtsumme:{' '}
+  <b>
+    {useFreeBeerChoice === 'no'
+      ? euro(checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0))
+      : euro(checkoutTotals.payCents)}
+  </b>
+</div>
+
               </div>
               {checkoutTotals.freeUsed < checkoutTotals.totalQty && checkoutTotals.freeUsed > 0 && (
                 <div className="mt-3 text-amber-400 text-sm">
