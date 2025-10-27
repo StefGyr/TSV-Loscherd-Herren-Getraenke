@@ -547,28 +547,37 @@ const rows = [{
             <motion.div className="bg-neutral-900 text-white w-[min(720px,95vw)] rounded-2xl p-6 shadow-2xl">
               <h3 className="text-xl font-semibold mb-4">Buchungsübersicht</h3>
               <div className="space-y-2 max-h-[50vh] overflow-auto pr-2">
-                {checkoutLines.map((ln) => (
-                  <div key={ln.drinkId} className="flex flex-wrap items-center justify-between border-b border-neutral-800 py-2">
-                    <div className="font-medium truncate">{ln.name}</div>
-                    <div className="text-sm text-neutral-300">Menge: <b>{ln.qty}</b></div>
-                    <div className="text-sm text-emerald-400">Frei: {ln.freeQty}</div>
-                    <div className="text-sm text-sky-300">Zahlend: {ln.payQty} × {euro(ln.unitCents)} = <b>{euro(ln.linePaidCents)}</b></div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 p-3 rounded-lg bg-neutral-800 flex flex-wrap gap-6 text-sm">
-                <div>Freibier genutzt: <b>{checkoutTotals.freeUsed}</b></div>
-                <div>Verbleibendes Freibier: <b>{checkoutTotals.remainingPool}</b></div>
-                <div>
-  Gesamtsumme:{' '}
-  <b>
-    {useFreeBeerChoice === 'no'
-      ? euro(checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0))
-      : euro(checkoutTotals.payCents)}
-  </b>
+  {checkoutLines.map((ln) => {
+    const isNormalPay = useFreeBeerChoice === 'no'
+    const showFree = isNormalPay ? 0 : ln.freeQty
+    const showPay = isNormalPay ? ln.qty : ln.payQty
+    const showTotal = showPay * ln.unitCents
+    return (
+      <div key={ln.drinkId} className="flex flex-wrap items-center justify-between border-b border-neutral-800 py-2">
+        <div className="font-medium truncate">{ln.name}</div>
+        <div className="text-sm text-neutral-300">Menge: <b>{ln.qty}</b></div>
+        <div className="text-sm text-emerald-400">Frei: {showFree}</div>
+        <div className="text-sm text-sky-300">
+          Zahlend: {showPay} × {euro(ln.unitCents)} = <b>{euro(showTotal)}</b>
+        </div>
+      </div>
+    )
+  })}
 </div>
 
-              </div>
+<div className="mt-4 p-3 rounded-lg bg-neutral-800 flex flex-wrap gap-6 text-sm">
+  <div>Freibier genutzt: <b>{useFreeBeerChoice === 'no' ? 0 : checkoutTotals.freeUsed}</b></div>
+  <div>Verbleibendes Freibier: <b>{useFreeBeerChoice === 'no' ? freePool : checkoutTotals.remainingPool}</b></div>
+  <div>
+    Gesamtsumme:{' '}
+    <b>
+      {useFreeBeerChoice === 'no'
+        ? euro(checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0))
+        : euro(checkoutTotals.payCents)}
+    </b>
+  </div>
+</div>
+
               {checkoutTotals.freeUsed < checkoutTotals.totalQty && checkoutTotals.freeUsed > 0 && (
                 <div className="mt-3 text-amber-400 text-sm">
                   ⚠️ Du hast mehr Getränke gewählt als Freibier verfügbar. Der Rest wird normal berechnet.
