@@ -287,14 +287,25 @@ export default function TopTerminalPage() {
       }
     }
 
-    // Kontostand um die zahlpflichtige Summe erhöhen
-    if (checkoutTotals.payCents > 0) {
-      await supabase.rpc('increment_balance', {
-        user_id_input: user.id,
-        amount_input: checkoutTotals.payCents
-      })
-      setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + checkoutTotals.payCents } : prev)
-    }
+    // 💰 Zu zahlender Betrag berechnen (abhängig von Freibier-Entscheidung)
+let amountToAdd = 0
+if (useFreeBeerChoice === 'no') {
+  // Nutzer will alles bezahlen → komplette Summe berechnen
+  amountToAdd = checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0)
+} else {
+  // Nur zahlpflichtiger Teil (Rest nach Freibier)
+  amountToAdd = checkoutTotals.payCents
+}
+
+// Kontostand erhöhen, wenn ein Betrag anfällt
+if (amountToAdd > 0) {
+  await supabase.rpc('increment_balance', {
+    user_id_input: user.id,
+    amount_input: amountToAdd
+  })
+  setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + amountToAdd } : prev)
+}
+
 
     // Einfügen der Buchungen via SECURITY DEFINER RPC
     if (inserts.length > 0) {
@@ -326,7 +337,16 @@ export default function TopTerminalPage() {
   const buyCrateNow = useCallback(async () => {
     if (!user || !selectedDrink) return
 
-    const rows = [{ user_id: user.id, drink_id: selectedDrink.id, quantity: BOTTLES_PER_CRATE, unit_price_cents: selectedDrink.crate_price_cents, source: 'crate' as const }]
+   // 👇 Kistenpreis gleichmäßig auf Flaschen verteilen
+const perBottle = Math.round(selectedDrink.crate_price_cents / BOTTLES_PER_CRATE)
+const rows = [{
+  user_id: user.id,
+  drink_id: selectedDrink.id,
+  quantity: BOTTLES_PER_CRATE,
+  unit_price_cents: perBottle,
+  source: 'crate' as const,
+}]
+
     await supabase.rpc('terminal_insert_consumptions', { _rows: rows as any })
 
     await supabase.rpc('increment_balance', { user_id_input: user.id, amount_input: selectedDrink.crate_price_cents })
