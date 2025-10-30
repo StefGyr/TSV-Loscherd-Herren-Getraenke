@@ -222,7 +222,7 @@ if (freeDrinks.length > 0) {
   fetchData(user.id)
 
   if (method === 'paypal') {
-    const redirect = `https://paypal.me/StefGyr/${amount}`
+    const redirect = `https://paypal.me/benjamindenert/${amount}`
     window.open(redirect, '_blank')
   }
 }
