@@ -46,11 +46,17 @@ export default function ActivityPage() {
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // Daten abrufen (letzte 30 Tage)
+      // 🧩 Hauptabfrage (letzte 7 Tage)
       let query = supabase
         .from('consumptions')
-        .select('created_at, quantity, drinks(name), profiles(first_name,last_name)')
+        .select(`
+          created_at,
+          quantity,
+          drinks(name),
+          profiles!consumptions_user_id_fkey(first_name,last_name)
+        `)
         .gte('created_at', startOfWeek.toISOString())
+
       if (!admin) query = query.eq('user_id', user.id)
       const { data, error } = await query
       if (error) {
@@ -103,7 +109,13 @@ export default function ActivityPage() {
       }
 
       /* --- Bestenliste --- */
-      const fullQuery = supabase.from('consumptions').select('quantity, profiles(first_name,last_name)')
+      const fullQuery = supabase
+        .from('consumptions')
+        .select(`
+          quantity,
+          profiles!consumptions_user_id_fkey(first_name,last_name)
+        `)
+
       const { data: allData } = await fullQuery
       const filtered = rankingMode === '7days' ? data || [] : allData || []
       const totals: Record<string, number> = {}
@@ -227,7 +239,7 @@ export default function ActivityPage() {
               </table>
             </section>
 
-            {/* --- Detailansicht pro Tag --- */}
+            {/* --- Tagesübersicht (Detail) --- */}
             <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
               <h2 className="text-lg font-semibold mb-3">📅 Tagesübersicht (wer was getrunken hat)</h2>
               {Object.keys(dailyGrouped).length === 0 ? (
@@ -237,10 +249,12 @@ export default function ActivityPage() {
                   .sort(([a], [b]) => b.localeCompare(a))
                   .map(([date, users]) => {
                     const dayTotal = Object.values(users).reduce((sum: number, drinks: any) => {
-  const drinkSum = Object.values(drinks as Record<string, number>).reduce((s, n) => s + n, 0)
-  return sum + drinkSum
-}, 0)
-
+                      const drinkSum = Object.values(drinks as Record<string, number>).reduce(
+                        (s, n) => s + n,
+                        0
+                      )
+                      return sum + drinkSum
+                    }, 0)
                     return (
                       <div key={date} className="mb-6">
                         <h3 className="text-green-400 font-semibold mb-2">
