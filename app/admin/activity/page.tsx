@@ -276,16 +276,18 @@ export default function ActivityPage() {
                         </thead>
                         <tbody>
                           {Object.entries(users).map(([user, drinks]) =>
-                            Object.entries(drinks).map(([drink, qty]) => (
-                              <tr key={user + drink} className="border-t border-gray-800">
-                                <td className="py-1">{user}</td>
-                                <td className="py-1">{drink}</td>
-                                <td className="py-1 text-right text-green-400 font-semibold">
-                                  {qty}x
-                                </td>
-                              </tr>
-                            ))
-                          )}
+                            {Object.entries(users).map(([user, drinks]) =>
+  Object.entries(drinks as Record<string, number>).map(([drink, qty]) => (
+    <tr key={user + drink} className="border-t border-gray-800">
+      <td className="py-1">{user}</td>
+      <td className="py-1">{drink}</td>
+      <td className="py-1 text-right text-green-400 font-semibold">
+        {qty}x
+      </td>
+    </tr>
+  ))
+)}
+
                         </tbody>
                       </table>
                     </div>
