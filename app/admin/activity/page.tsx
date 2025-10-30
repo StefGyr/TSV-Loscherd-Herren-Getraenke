@@ -236,12 +236,11 @@ export default function ActivityPage() {
                 Object.entries(dailyGrouped)
                   .sort(([a], [b]) => b.localeCompare(a))
                   .map(([date, users]) => {
-                    const dayTotal = Object.values(users).reduce(
-                      (sum, drinks: any) =>
-                        sum +
-                        Object.values(drinks as Record<string, number>).reduce((s, n) => s + n, 0),
-                      0
-                    )
+                    const dayTotal = Object.values(users).reduce((sum: number, drinks: any) => {
+  const drinkSum = Object.values(drinks as Record<string, number>).reduce((s, n) => s + n, 0)
+  return sum + drinkSum
+}, 0)
+
                     return (
                       <div key={date} className="mb-6">
                         <h3 className="text-green-400 font-semibold mb-2">
