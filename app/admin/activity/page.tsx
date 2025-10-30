@@ -71,9 +71,11 @@ export default function ActivityPage() {
       const todaySum = today.reduce((s, c) => s + (c.quantity || 0), 0)
       const drinkMap: Record<string, number> = {}
       today.forEach((c) => {
-        const drinkName = Array.isArray(c.drinks)
-          ? c.drinks[0]?.name
-          : c.drinks?.name
+        const drinkData = c.drinks as { name?: string } | { name?: string }[]
+const drinkName = Array.isArray(drinkData)
+  ? drinkData[0]?.name
+  : drinkData?.name
+
         const n = drinkName || 'Unbekannt'
         drinkMap[n] = (drinkMap[n] || 0) + c.quantity
       })
