@@ -46,13 +46,13 @@ export default function ActivityPage() {
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // 🧩 Hauptabfrage (letzte 7 Tage)
+      // 🔹 Hauptabfrage mit korrekten Joins
       let query = supabase
         .from('consumptions')
         .select(`
           created_at,
           quantity,
-          drinks(name),
+          drinks!consumptions_drink_id_fkey(name),
           profiles!consumptions_user_id_fkey(first_name,last_name)
         `)
         .gte('created_at', startOfWeek.toISOString())
@@ -71,7 +71,10 @@ export default function ActivityPage() {
       const todaySum = today.reduce((s, c) => s + (c.quantity || 0), 0)
       const drinkMap: Record<string, number> = {}
       today.forEach((c) => {
-        const n = c.drinks?.[0]?.name || 'Unbekannt'
+        const drinkName = Array.isArray(c.drinks)
+          ? c.drinks[0]?.name
+          : c.drinks?.name
+        const n = drinkName || 'Unbekannt'
         drinkMap[n] = (drinkMap[n] || 0) + c.quantity
       })
       const todayDrinksList = Object.entries(drinkMap)
@@ -102,12 +105,13 @@ export default function ActivityPage() {
       for (const c of data || []) {
         const date = c.created_at.slice(0, 10)
         const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
-const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
-
-        const drink = c.drinks?.[0]?.name || 'Unbekannt'
+        const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+        const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
+        const drinkName = drinkObj?.name || 'Unbekannt'
         grouped[date] = grouped[date] || {}
         grouped[date][userName] = grouped[date][userName] || {}
-        grouped[date][userName][drink] = (grouped[date][userName][drink] || 0) + (c.quantity || 0)
+        grouped[date][userName][drinkName] =
+          (grouped[date][userName][drinkName] || 0) + (c.quantity || 0)
       }
 
       /* --- Bestenliste --- */
@@ -117,14 +121,12 @@ const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 
           quantity,
           profiles!consumptions_user_id_fkey(first_name,last_name)
         `)
-
       const { data: allData } = await fullQuery
       const filtered = rankingMode === '7days' ? data || [] : allData || []
       const totals: Record<string, number> = {}
       filtered.forEach((c) => {
         const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
-const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
-
+        const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
         totals[name] = (totals[name] || 0) + (c.quantity || 0)
       })
       const rankingList = Object.entries(totals)
