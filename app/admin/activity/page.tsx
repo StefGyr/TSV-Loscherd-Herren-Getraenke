@@ -101,7 +101,9 @@ export default function ActivityPage() {
       const grouped: Record<string, Record<string, Record<string, number>>> = {}
       for (const c of data || []) {
         const date = c.created_at.slice(0, 10)
-        const userName = `${c.profiles?.first_name || ''} ${c.profiles?.last_name || ''}`.trim() || 'Unbekannt'
+        const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
+const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+
         const drink = c.drinks?.[0]?.name || 'Unbekannt'
         grouped[date] = grouped[date] || {}
         grouped[date][userName] = grouped[date][userName] || {}
@@ -120,7 +122,9 @@ export default function ActivityPage() {
       const filtered = rankingMode === '7days' ? data || [] : allData || []
       const totals: Record<string, number> = {}
       filtered.forEach((c) => {
-        const name = `${c.profiles?.first_name || ''} ${c.profiles?.last_name || ''}`.trim() || 'Unbekannt'
+        const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
+const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+
         totals[name] = (totals[name] || 0) + (c.quantity || 0)
       })
       const rankingList = Object.entries(totals)
