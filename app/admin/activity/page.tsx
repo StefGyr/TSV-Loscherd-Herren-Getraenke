@@ -14,29 +14,26 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-type DailyStat = {
-  date: string
-  count: number
-}
+type DailyStat = { date: string; count: number }
 
 export default function ActivityPage() {
   const [todayCount, setTodayCount] = useState(0)
   const [todayDrinks, setTodayDrinks] = useState<{ name: string; qty: number }[]>([])
   const [weekData, setWeekData] = useState<DailyStat[]>([])
   const [recent, setRecent] = useState<any[]>([])
+  const [dailyGrouped, setDailyGrouped] = useState<Record<string, any>>({})
+  const [ranking, setRanking] = useState<{ user: string; qty: number }[]>([])
+  const [rankingMode, setRankingMode] = useState<'7days' | 'all'>('7days')
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-
-      // 🧑‍💻 Aktuellen Nutzer prüfen
       const { data: auth } = await supabase.auth.getUser()
       const user = auth?.user
       if (!user) return
 
-      // 👑 Admin-Status prüfen
       const { data: prof } = await supabase
         .from('profiles')
         .select('is_admin')
@@ -50,26 +47,22 @@ export default function ActivityPage() {
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // 🔹 Basisabfrage (letzte 7 Tage)
+      // Basisabfrage: letzte 30 Tage
       let query = supabase
         .from('consumptions')
         .select('created_at, quantity, drinks(name), profiles(first_name,last_name)')
         .gte('created_at', startOfWeek.toISOString())
 
-      // Wenn kein Admin → nur eigene Buchungen anzeigen
-      if (!admin) {
-        query = query.eq('user_id', user.id)
-      }
+      if (!admin) query = query.eq('user_id', user.id)
 
       const { data, error } = await query
-
       if (error) {
         console.error(error)
         setLoading(false)
         return
       }
 
-      // 📅 Heute
+      /* ---------- Tagesstatistik ---------- */
       const todayStr = now.toISOString().slice(0, 10)
       const today = (data || []).filter((c) => c.created_at.startsWith(todayStr))
       const todaySum = today.reduce((s, c) => s + (c.quantity || 0), 0)
@@ -82,7 +75,7 @@ export default function ActivityPage() {
         .map(([name, qty]) => ({ name, qty }))
         .sort((a, b) => b.qty - a.qty)
 
-      // 📆 Wöchentliche Summen
+      /* ---------- Wochenbalken ---------- */
       const weekMap: Record<string, number> = {}
       for (let i = 0; i < 7; i++) {
         const d = new Date(now)
@@ -101,37 +94,60 @@ export default function ActivityPage() {
         }))
         .reverse()
 
-      // 🧾 Letzte Verbuchungen (10)
+      /* ---------- Letzte Verbuchungen ---------- */
       let lastQuery = supabase
         .from('consumptions')
         .select('created_at, quantity, drinks(name), profiles(first_name,last_name)')
         .order('created_at', { ascending: false })
         .limit(10)
+      if (!admin) lastQuery = lastQuery.eq('user_id', user.id)
+      const { data: last } = await lastQuery
 
-      if (!admin) {
-        lastQuery = lastQuery.eq('user_id', user.id)
+      /* ---------- Gruppierung pro Tag ---------- */
+      const grouped: Record<string, Record<string, Record<string, number>>> = {}
+      for (const c of data || []) {
+        const date = c.created_at.slice(0, 10)
+        const userName = `${c.profiles?.first_name || ''} ${c.profiles?.last_name || ''}`.trim() || 'Unbekannt'
+        const drink = c.drinks?.[0]?.name || 'Unbekannt'
+        grouped[date] = grouped[date] || {}
+        grouped[date][userName] = grouped[date][userName] || {}
+        grouped[date][userName][drink] = (grouped[date][userName][drink] || 0) + (c.quantity || 0)
       }
 
-      const { data: last } = await lastQuery
+      /* ---------- Ranking ---------- */
+      const fullQuery = supabase
+        .from('consumptions')
+        .select('quantity, profiles(first_name,last_name)')
+      const { data: allData } = await fullQuery
+      const filtered = rankingMode === '7days' ? data || [] : allData || []
+      const totals: Record<string, number> = {}
+      filtered.forEach((c) => {
+        const name = `${c.profiles?.first_name || ''} ${c.profiles?.last_name || ''}`.trim() || 'Unbekannt'
+        totals[name] = (totals[name] || 0) + (c.quantity || 0)
+      })
+      const rankingList = Object.entries(totals)
+        .map(([user, qty]) => ({ user, qty }))
+        .sort((a, b) => b.qty - a.qty)
 
       setTodayCount(todaySum)
       setTodayDrinks(todayDrinksList)
       setWeekData(weekStats)
       setRecent(last || [])
+      setDailyGrouped(grouped)
+      setRanking(rankingList)
       setLoading(false)
     }
 
     load()
-  }, [])
+  }, [rankingMode])
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
       <TopNav />
       <AdminNav />
-
       <div className="max-w-6xl mx-auto p-6 pt-10 space-y-10">
         <h1 className="text-2xl font-bold">
-          {isAdmin ? '📊 Gesamtaktivität (Admin)' : '📅 Deine Aktivität'}
+          {isAdmin ? '🍻 Gesamtaktivität (Admin)' : '📅 Deine Aktivität'}
         </h1>
 
         {loading ? (
@@ -150,13 +166,9 @@ export default function ActivityPage() {
                       value={todayDrinks.length.toString()}
                     />
                   </div>
-                  <h3 className="text-sm text-gray-300 mb-2">Meist verbuchte Getränke:</h3>
                   <ul className="space-y-1 text-sm">
                     {todayDrinks.map((d, i) => (
-                      <li
-                        key={i}
-                        className="flex justify-between border-b border-gray-800 py-1"
-                      >
+                      <li key={i} className="flex justify-between border-b border-gray-800 py-1">
                         <span>{d.name}</span>
                         <span className="text-green-400 font-semibold">{d.qty}x</span>
                       </li>
@@ -184,57 +196,100 @@ export default function ActivityPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-                {weekData.map((d) => (
-                  <ActivityCard
-                    key={d.date}
-                    title={d.date}
-                    value={`${d.count} Buchungen`}
-                    danger={d.count === 0}
-                  />
-                ))}
-              </div>
             </section>
 
-            {/* 🔹 Letzte Verbuchungen */}
+            {/* 🔹 Bestenliste */}
             <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
-              <h2 className="text-lg font-semibold mb-3">
-                🧾 Letzte Verbuchungen {isAdmin ? '(alle Nutzer)' : '(deine)'}
-              </h2>
-              {recent.length === 0 ? (
-                <p className="text-gray-400 text-sm">Keine Buchungen gefunden.</p>
-              ) : (
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="text-gray-400 border-b border-gray-700">
-                      <th className="text-left py-2">Nutzer</th>
-                      <th className="text-left py-2">Getränk</th>
-                      <th className="text-right py-2">Menge</th>
-                      <th className="text-right py-2">Datum</th>
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold">🏆 Bestenliste</h2>
+                <div className="flex gap-2">
+                  {['7days', 'all'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setRankingMode(m as '7days' | 'all')}
+                      className={`px-3 py-1 rounded text-sm ${
+                        rankingMode === m
+                          ? 'bg-green-700 text-white'
+                          : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                      }`}
+                    >
+                      {m === '7days' ? 'Letzte 7 Tage' : 'Gesamt'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-gray-400 border-b border-gray-700">
+                    <th className="text-left py-2">Platz</th>
+                    <th className="text-left py-2">Name</th>
+                    <th className="text-right py-2">Getränke</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ranking.map((r, i) => (
+                    <tr
+                      key={r.user}
+                      className={`border-t border-gray-800 ${
+                        i === 0
+                          ? 'text-yellow-400'
+                          : i === 1
+                          ? 'text-gray-300'
+                          : i === 2
+                          ? 'text-amber-600'
+                          : ''
+                      }`}
+                    >
+                      <td className="py-1">{i + 1 === 1 ? '🥇' : i + 1 === 2 ? '🥈' : i + 1 === 3 ? '🥉' : i + 1}</td>
+                      <td className="py-1">{r.user}</td>
+                      <td className="py-1 text-right font-semibold">{r.qty}x</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {recent.map((r, i) => (
-                      <tr key={i} className="border-t border-gray-700">
-                        <td className="py-1">
-                          {r.profiles?.first_name} {r.profiles?.last_name}
-                        </td>
-                        <td className="py-1">{r.drinks?.[0]?.name || '—'}</td>
-                        <td className="py-1 text-right text-green-400 font-semibold">
-                          {r.quantity}x
-                        </td>
-                        <td className="py-1 text-right text-gray-400">
-                          {new Date(r.created_at).toLocaleString('de-DE', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            {/* 🔹 Detailansicht pro Tag */}
+            <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
+              <h2 className="text-lg font-semibold mb-3">📅 Tagesübersicht (wer was getrunken hat)</h2>
+              {Object.keys(dailyGrouped).length === 0 ? (
+                <p className="text-gray-400 text-sm">Keine Daten gefunden.</p>
+              ) : (
+                Object.entries(dailyGrouped)
+                  .sort(([a], [b]) => b.localeCompare(a))
+                  .map(([date, users]) => (
+                    <div key={date} className="mb-6">
+                      <h3 className="text-green-400 font-semibold mb-2">
+                        {new Date(date).toLocaleDateString('de-DE', {
+                          weekday: 'long',
+                          day: '2-digit',
+                          month: '2-digit',
+                        })}
+                      </h3>
+                      <table className="w-full text-sm border-collapse mb-2">
+                        <thead>
+                          <tr className="text-gray-400 border-b border-gray-700">
+                            <th className="text-left py-2">Nutzer</th>
+                            <th className="text-left py-2">Getränk</th>
+                            <th className="text-right py-2">Menge</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(users).map(([user, drinks]) =>
+                            Object.entries(drinks).map(([drink, qty]) => (
+                              <tr key={user + drink} className="border-t border-gray-800">
+                                <td className="py-1">{user}</td>
+                                <td className="py-1">{drink}</td>
+                                <td className="py-1 text-right text-green-400 font-semibold">
+                                  {qty}x
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))
               )}
             </section>
           </>
@@ -248,20 +303,12 @@ export default function ActivityPage() {
 function ActivityCard({
   title,
   value,
-  danger,
 }: {
   title: string
   value: string
-  danger?: boolean
 }) {
   return (
-    <div
-      className={`rounded-xl p-4 text-center border shadow ${
-        danger
-          ? 'bg-red-900/50 border-red-700 text-red-200'
-          : 'bg-gray-800/70 border-gray-700 text-white'
-      }`}
-    >
+    <div className="rounded-xl p-4 text-center border shadow bg-gray-800/70 border-gray-700 text-white">
       <div className="text-sm text-gray-400">{title}</div>
       <div className="text-xl font-semibold mt-1">{value}</div>
     </div>
