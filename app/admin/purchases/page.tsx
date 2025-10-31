@@ -7,12 +7,15 @@ import AdminNav from '@/components/AdminNav'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 
+// drinks kann Objekt ODER Array sein – beides unterstützen
+type DrinkObj = { name?: string } | null
 type Purchase = {
   id: number
   created_at: string
   quantity: number
   crate_price_cents: number
-  drinks: { name: string }[]
+  // Supabase kann hier {name} ODER [{name}] liefern
+  drinks: DrinkObj | DrinkObj[]
 }
 
 export default function PurchasesPage() {
@@ -32,27 +35,36 @@ export default function PurchasesPage() {
   }, [])
 
   const loadPurchases = async () => {
-  setLoading(true)
-  const { data, error } = await supabase
-    .from('purchases')
-    .select(`
-      id,
-      created_at,
-      quantity,
-      crate_price_cents,
-      drinks!purchases_drink_id_fkey(name)
-    `)
-    .order('created_at', { ascending: false })
+    setLoading(true)
 
-  if (error) {
-    console.error(error)
-    addToast('Fehler beim Laden', 'error')
-  } else {
-    setPurchases(data || [])
+    // ⚠️ WICHTIG: Nutze den FK-Join. Falls dein FK anders heißt,
+    // ersetze 'purchases_drink_id_fkey' durch den exakten Namen aus Supabase > Relationships.
+    const { data, error } = await supabase
+      .from('purchases')
+      .select(`
+        id,
+        created_at,
+        quantity,
+        crate_price_cents,
+        drinks!purchases_drink_id_fkey(name)
+      `)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error(error)
+      addToast('Fehler beim Laden', 'error')
+    } else {
+      setPurchases((data || []) as Purchase[])
+    }
+    setLoading(false)
   }
-  setLoading(false)
-}
 
+  // 🔹 Hilfsfunktion: holt den Namen robust aus Objekt ODER Array
+  const getDrinkName = (drinks: Purchase['drinks']) => {
+    if (!drinks) return '-'
+    if (Array.isArray(drinks)) return drinks[0]?.name || '-'
+    return drinks?.name || '-'
+  }
 
   // 🔹 Filterlogik
   const filtered = purchases.filter((p) => {
@@ -136,7 +148,7 @@ export default function PurchasesPage() {
               {filtered.map((p) => (
                 <tr key={p.id} className="border-t border-gray-700">
                   <td className="p-2">{new Date(p.created_at).toLocaleDateString('de-DE')}</td>
-                  <td className="p-2">{p.drinks?.[0]?.name || '-'}</td>
+                  <td className="p-2">{getDrinkName(p.drinks)}</td>
                   <td className="p-2 text-right">{p.quantity}</td>
                   <td className="p-2 text-right">{(p.crate_price_cents / 100).toFixed(2)}</td>
                   <td className="p-2 text-right">
