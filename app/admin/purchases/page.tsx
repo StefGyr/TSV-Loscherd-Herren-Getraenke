@@ -32,23 +32,27 @@ export default function PurchasesPage() {
   }, [])
 
   const loadPurchases = async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('purchases')
-      .select(`
-  id,
-  created_at,
-  quantity,
-  crate_price_cents,
-  drinks!purchases_drink_id_fkey(name)
-`)
+  setLoading(true)
+  const { data, error } = await supabase
+    .from('purchases')
+    .select(`
+      id,
+      created_at,
+      quantity,
+      crate_price_cents,
+      drinks!purchases_drink_id_fkey(name)
+    `)
+    .order('created_at', { ascending: false })
 
-      .order('created_at', { ascending: false })
-
-    if (error) addToast('Fehler beim Laden', 'error')
-    else setPurchases(data || [])
-    setLoading(false)
+  if (error) {
+    console.error(error)
+    addToast('Fehler beim Laden', 'error')
+  } else {
+    setPurchases(data || [])
   }
+  setLoading(false)
+}
+
 
   // 🔹 Filterlogik
   const filtered = purchases.filter((p) => {
