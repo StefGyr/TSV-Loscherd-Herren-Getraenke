@@ -35,7 +35,14 @@ export default function PurchasesPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('purchases')
-      .select('id, created_at, quantity, crate_price_cents, drinks(name)')
+      .select(`
+  id,
+  created_at,
+  quantity,
+  crate_price_cents,
+  drinks!purchases_drink_id_fkey(name)
+`)
+
       .order('created_at', { ascending: false })
 
     if (error) addToast('Fehler beim Laden', 'error')
