@@ -334,35 +334,71 @@ export default function InventoryRevenuePage() {
                 </tr>
               </thead>
               <tbody>
-                {inventory.map(row=>{
-                  const ekCrate = drinks.find(d=>d.id===row.id)?.ek_crate_price_cents
-                  const th = thresholdByDrink.get(row.id)
-                  const low = th && row.stock < th.threshold_bottles
-                  const [localTh,setLocalTh] = useState<number>(th?.threshold_bottles ?? 0)
-                  const [localEmail,setLocalEmail] = useState<string>(th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de')
-                  return (
-                    <tr key={row.id} className={`border-t border-gray-700 ${low?'bg-red-950/30':''}`}>
-                      <td className="p-2">{row.name}</td>
-                      <td className={`p-2 text-right ${low?'text-red-400 font-semibold':''}`}>{row.stock}</td>
-                      <td className="p-2 text-right">{row.sold}</td>
-                      <td className="p-2 text-right">{ekCrate ? (ekCrate/100).toFixed(2) : ''}</td>
-                      <td className="p-2 text-right">{row.ekBottle!=null ? row.ekBottle.toFixed(2) : ''}</td>
-                      <td className="p-2 text-right">{row.vkBottle.toFixed(2)}</td>
-                      <td className="p-2 text-right">
-                        <input type="number" value={localTh} onChange={e=>setLocalTh(parseInt(e.target.value||'0'))}
-                          className="bg-gray-900 border border-gray-700 rounded text-right w-20 p-1" />
-                      </td>
-                      <td className="p-2">
-                        <input type="text" value={localEmail} onChange={e=>setLocalEmail(e.target.value)}
-                          className="bg-gray-900 border border-gray-700 rounded w-56 p-1" />
-                      </td>
-                      <td className="p-2 text-right">
-                        <button onClick={()=>saveThreshold(row.id, localTh, localEmail)} className="bg-blue-700 hover:bg-blue-800 rounded px-2 py-1 text-sm">Speichern</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
+  {inventory.map((row) => {
+    const ekCrate = drinks.find((d) => d.id === row.id)?.ek_crate_price_cents
+    const th = thresholdByDrink.get(row.id)
+    const low = th && row.stock < th.threshold_bottles
+
+    return (
+      <tr key={row.id} className={`border-t border-gray-700 ${low ? 'bg-red-950/30' : ''}`}>
+        <td className="p-2">{row.name}</td>
+        <td className={`p-2 text-right ${low ? 'text-red-400 font-semibold' : ''}`}>{row.stock}</td>
+        <td className="p-2 text-right">{row.sold}</td>
+        <td className="p-2 text-right">{ekCrate ? (ekCrate / 100).toFixed(2) : ''}</td>
+        <td className="p-2 text-right">{row.ekBottle != null ? row.ekBottle.toFixed(2) : ''}</td>
+        <td className="p-2 text-right">{row.vkBottle.toFixed(2)}</td>
+
+        {/* 🔹 Schwellwert */}
+        <td className="p-2 text-right">
+          <input
+            type="number"
+            defaultValue={th?.threshold_bottles ?? 0}
+            onBlur={(e) =>
+              saveThreshold(row.id, parseInt(e.target.value || '0'), th?.notify_email || '')
+            }
+            className="bg-gray-900 border border-gray-700 rounded text-right w-20 p-1"
+          />
+        </td>
+
+        {/* 🔹 E-Mail */}
+        <td className="p-2">
+          <input
+            type="text"
+            defaultValue={
+              th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de'
+            }
+            onBlur={(e) =>
+              saveThreshold(
+                row.id,
+                th?.threshold_bottles ?? 20,
+                e.target.value.trim()
+              )
+            }
+            className="bg-gray-900 border border-gray-700 rounded w-56 p-1"
+          />
+        </td>
+
+        {/* 🔹 Button */}
+        <td className="p-2 text-right">
+          <button
+            onClick={() =>
+              saveThreshold(
+                row.id,
+                th?.threshold_bottles ?? 20,
+                th?.notify_email ??
+                  'bennybecool@gmx.de,geyer1992@hotmail.de'
+              )
+            }
+            className="bg-blue-700 hover:bg-blue-800 rounded px-2 py-1 text-sm"
+          >
+            Speichern
+          </button>
+        </td>
+      </tr>
+    )
+  })}
+</tbody>
+
             </table>
           </div>
         </section>
