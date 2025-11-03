@@ -143,6 +143,25 @@ export default function HomePage() {
   }
     
   }, [])
+  // Echtzeit-Update, wenn sich die Platzbelegung ändert
+useEffect(() => {
+  const channel = supabase
+    .channel('platzbelegung-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'platzbelegung' },
+      (payload) => {
+        console.log('🔁 Platzbelegung geändert:', payload)
+        window.location.reload() // Seite neu laden, damit die neue Belegung sichtbar wird
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [])
+
 
   // ---------------- Buchung (Bezahlen) ----------------
   const handlePaidBooking = async (drink: any, qty: number) => {
