@@ -256,7 +256,7 @@ export default function HomePage() {
     await supabase.from('consumptions').insert({
       user_id: user.id,
       drink_id: bierDrink?.id ?? null,
-      quantity: 1, // 1 Kiste
+      quantity: 0, // ⚡️ statt 1 – keine Flasche abziehen
       unit_price_cents: bierPrice,
       source: 'crate', // wichtig für Admin-Logik
       created_at: new Date().toISOString(),
