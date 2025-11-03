@@ -6,7 +6,6 @@ import TopNav from '@/components/TopNav'
 import AdminNav from '@/components/AdminNav'
 import { AnimatePresence, motion } from 'framer-motion'
 
-/** ---------- Types ---------- */
 type Drink = {
   id: number
   name: string
@@ -20,14 +19,14 @@ type Consumption = {
   quantity: number
   unit_price_cents: number | null
   source: 'single' | 'crate' | string | null
+  via_terminal?: boolean | null
   created_at: string
-  user_id?: string
 }
 
 type Purchase = {
   id: number
   drink_id: number
-  quantity: number // wird für Flaschenzugang als bottles/20 verwendet (Dezimal möglich)
+  quantity: number
   crate_price_cents: number
   created_at: string
 }
@@ -45,16 +44,12 @@ type Payment = {
 type Profile = { id: string; open_balance_cents: number | null; first_name?: string | null; last_name?: string | null }
 
 const BOTTLES_PER_CRATE = 20
-
-function euro(cents: number) {
-  return (cents / 100).toFixed(2) + ' €'
-}
-function startOfToday(): Date { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
-function startOfWeek(): Date { const d = startOfToday(); const day = d.getDay() || 7; d.setDate(d.getDate() - (day - 1)); return d }
-function startOfMonth(): Date { const d = startOfToday(); d.setDate(1); return d }
+const euro = (cents: number) => (cents / 100).toFixed(2) + ' €'
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+const startOfWeek = () => { const d = startOfToday(); const day = d.getDay() || 7; d.setDate(d.getDate() - (day - 1)); return d }
+const startOfMonth = () => { const d = startOfToday(); d.setDate(1); return d }
 
 export default function InventoryRevenuePage() {
-  /** ---------- State ---------- */
   const [drinks, setDrinks] = useState<Drink[]>([])
   const [consumptions, setConsumptions] = useState<Consumption[]>([])
   const [purchases, setPurchases] = useState<Purchase[]>([])
@@ -65,16 +60,14 @@ export default function InventoryRevenuePage() {
   const [toasts, setToasts] = useState<{ id: number; text: string; type?: 'success' | 'error' }[]>([])
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
-    setToasts((prev) => [...prev, { id, text, type }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
+    setToasts((p) => [...p, { id, text, type }])
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000)
   }
 
-  /** ---------- Date filter ---------- */
   const [rangePreset, setRangePreset] = useState<'today' | 'week' | 'month' | 'custom'>('month')
   const [from, setFrom] = useState<string>(() => startOfMonth().toISOString().slice(0, 10))
   const [to, setTo] = useState<string>(() => new Date().toISOString().slice(0, 10))
 
-  // Preset -> setzt from/to nur, wenn NICHT benutzerdefiniert
   useEffect(() => {
     if (rangePreset === 'custom') return
     if (rangePreset === 'today') {
@@ -89,14 +82,13 @@ export default function InventoryRevenuePage() {
     }
   }, [rangePreset])
 
-  /** ---------- Load data ---------- */
   useEffect(() => {
     const load = async () => {
       setLoading(true)
       const [{ data: drinksData }, { data: consData }, { data: purchData }, { data: payData }, { data: profData }] =
         await Promise.all([
           supabase.from('drinks').select('id,name,price_cents,ek_crate_price_cents'),
-          supabase.from('consumptions').select('id,drink_id,quantity,unit_price_cents,source,created_at,user_id'),
+          supabase.from('consumptions').select('id,drink_id,quantity,unit_price_cents,source,via_terminal,created_at'),
           supabase.from('purchases').select('id,drink_id,quantity,crate_price_cents,created_at'),
           supabase
             .from('payments')
@@ -115,13 +107,6 @@ export default function InventoryRevenuePage() {
     load()
   }, [])
 
-  /** ---------- Helpers ---------- */
-  const drinkById = useMemo(() => {
-    const map = new Map<number, Drink>()
-    drinks.forEach((d) => map.set(d.id, d))
-    return map
-  }, [drinks])
-
   const inRange = (iso: string) => {
     const d = new Date(iso)
     const fromD = new Date(from + 'T00:00:00')
@@ -133,59 +118,44 @@ export default function InventoryRevenuePage() {
   const purchInRange = useMemo(() => purchases.filter((p) => inRange(p.created_at)), [purchases, from, to])
   const paymentsInRange = useMemo(() => payments.filter((p) => inRange(p.created_at)), [payments, from, to])
 
-  /** ---------- Einnahmen/Kosten/Gewinn ---------- */
-  // Einnahmen gesamt = verifizierte Zahlungen
+  /** Einnahmen / Kosten / Gewinn */
   const totalPaymentsCents = useMemo(
     () => paymentsInRange.reduce((s, p) => s + (p.amount_cents || 0), 0),
     [paymentsInRange]
   )
 
-  // Freibier-Einnahmen: consumptions mit source='crate' (Kostenpflichtige Kistenbereitstellung)
+  // 🔹 Freibier-Einnahmen exakt wie im Profil (App-Kisten)
   const freeBeerRevenueCents = useMemo(
     () =>
       consInRange
-        .filter((c) => c.source === 'crate' && (c.unit_price_cents || 0) > 0)
-        .reduce((s, c) => s + (c.unit_price_cents || 0) * (c.quantity || 0), 0),
+        .filter((c) => c.source === 'crate' && !c.via_terminal)
+        .reduce((sum, c) => sum + (c.unit_price_cents || 0), 0),
     [consInRange]
   )
 
-  // Bezahlte Verkäufe (Info-Stat) – getrennt von Zahlungen, rein aus Verkäufen
-  const paidSalesCents = useMemo(
-    () =>
-      consInRange
-        .filter((c) => (c.unit_price_cents || 0) > 0 && c.source !== 'crate')
-        .reduce((s, c) => s + (c.unit_price_cents || 0) * (c.quantity || 0), 0),
-    [consInRange]
-  )
-
-  // EK-Kosten im Zeitraum
   const costCents = useMemo(
     () => purchInRange.reduce((s, p) => s + (p.crate_price_cents || 0), 0),
     [purchInRange]
   )
 
-  // Gewinn = Zahlungen – Kosten
   const profitCents = useMemo(() => totalPaymentsCents - costCents, [totalPaymentsCents, costCents])
 
-  // Offene Posten gesamt
   const openPostenCents = useMemo(
     () => profiles.reduce((sum, p) => sum + (p.open_balance_cents || 0), 0),
     [profiles]
   )
 
-  /** ---------- Bestand (Flaschen) ---------- */
   const inventory = useMemo(() => {
-    const boughtByDrink = new Map<number, number>() // bottles
+    const boughtByDrink = new Map<number, number>()
     purchases.forEach((p) => {
       const bottles = (p.quantity || 0) * BOTTLES_PER_CRATE
       boughtByDrink.set(p.drink_id, (boughtByDrink.get(p.drink_id) || 0) + bottles)
     })
-    const soldByDrink = new Map<number, number>() // bottles
+    const soldByDrink = new Map<number, number>()
     consumptions.forEach((c) => {
       if (!c.drink_id) return
       soldByDrink.set(c.drink_id, (soldByDrink.get(c.drink_id) || 0) + (c.quantity || 0))
     })
-
     return drinks.map((d) => {
       const bought = boughtByDrink.get(d.id) || 0
       const sold = soldByDrink.get(d.id) || 0
@@ -203,78 +173,6 @@ export default function InventoryRevenuePage() {
     })
   }, [drinks, purchases, consumptions])
 
-  /** ---------- Actions: Bottle purchase & Stock adjust & Update EK/Kiste ---------- */
-  const [purchaseForm, setPurchaseForm] = useState<{ drink_id: string; bottles: string; total_price_eur: string }>({
-    drink_id: '',
-    bottles: '',
-    total_price_eur: '',
-  })
-
-  const saveBottlePurchase = async () => {
-    const drink_id = Number(purchaseForm.drink_id)
-    const bottles = Number(purchaseForm.bottles)
-    const totalPriceCents = Math.round(Number(purchaseForm.total_price_eur) * 100)
-    if (!drink_id || !bottles || !totalPriceCents) {
-      addToast('Bitte Getränk, Flaschenanzahl und Gesamt-EK angeben', 'error')
-      return
-    }
-
-    const crateQty = bottles / BOTTLES_PER_CRATE // darf Bruch sein
-    const { error } = await supabase.from('purchases').insert({
-      drink_id,
-      quantity: crateQty,
-      crate_price_cents: totalPriceCents,
-    })
-    if (error) {
-      addToast('Speichern fehlgeschlagen (prüfe Spaltentyp von purchases.quantity)', 'error')
-      return
-    }
-    addToast('Einkauf (Flaschen) gespeichert')
-    setPurchaseForm({ drink_id: '', bottles: '', total_price_eur: '' })
-    const { data } = await supabase.from('purchases').select('id,drink_id,quantity,crate_price_cents,created_at')
-    setPurchases(data || [])
-  }
-
-  const [adjustForm, setAdjustForm] = useState<{ drink_id: string; delta_bottles: string; note: string }>({
-    drink_id: '',
-    delta_bottles: '',
-    note: '',
-  })
-
-  const applyStockAdjustment = async () => {
-    const drink_id = Number(adjustForm.drink_id)
-    const delta = Number(adjustForm.delta_bottles) // + / -
-    if (!drink_id || !delta) {
-      addToast('Bitte Getränk und Delta (± Flaschen) angeben', 'error')
-      return
-    }
-    const crateQty = delta / BOTTLES_PER_CRATE
-    const { error } = await supabase.from('purchases').insert({
-      drink_id,
-      quantity: crateQty,
-      crate_price_cents: 0, // Korrektur, ohne EK
-    })
-    if (error) {
-      addToast('Bestandskorrektur fehlgeschlagen', 'error')
-      return
-    }
-    addToast('Bestand angepasst')
-    setAdjustForm({ drink_id: '', delta_bottles: '', note: '' })
-    const { data } = await supabase.from('purchases').select('id,drink_id,quantity,crate_price_cents,created_at')
-    setPurchases(data || [])
-  }
-
-  const updateEKCrate = async (drinkId: number, eur: number) => {
-    if (!eur || eur <= 0) return
-    const { error } = await supabase
-      .from('drinks')
-      .update({ ek_crate_price_cents: Math.round(eur * 100) })
-      .eq('id', drinkId)
-    if (error) addToast('EK/Kiste Speichern fehlgeschlagen', 'error')
-    else addToast('EK/Kiste aktualisiert')
-  }
-
-  /** ---------- UI ---------- */
   if (loading) return <div className="p-6 text-center text-white">⏳ Lade Daten…</div>
 
   return (
@@ -283,9 +181,9 @@ export default function InventoryRevenuePage() {
       <AdminNav />
       <div className="pt-20 max-w-7xl mx-auto p-4 text-white space-y-8">
 
-        {/* Header + Date Filter */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-          <h1 className="text-2xl font-bold">📦 Bestand & 💶 Einnahmen (flaschenbasiert)</h1>
+          <h1 className="text-2xl font-bold">📦 Bestand & 💶 Einnahmen</h1>
           <div className="bg-gray-800/70 border border-gray-700 rounded-xl p-3 flex items-center gap-2">
             <select
               className="bg-gray-900 border border-gray-700 rounded p-2"
@@ -317,227 +215,107 @@ export default function InventoryRevenuePage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-          <Stat title="Einnahmen (verifizierte Zahlungen)" value={euro(totalPaymentsCents)} />
-          <Stat title="• davon: Freibier-Einnahmen" value={euro(freeBeerRevenueCents)} />
-          <Stat title="Bezahlte Verkäufe (Info)" value={euro(paidSalesCents)} />
+          <Stat title="Gesamteinnahmen (verifiziert)" value={euro(totalPaymentsCents)} />
+          <Stat title="Freibier-Einnahmen (App-Kisten)" value={euro(freeBeerRevenueCents)} />
           <Stat title="Kosten (EK)" value={euro(costCents)} />
           <Stat title="Gewinn" value={euro(profitCents)} />
           <Stat title="Offene Posten" value={euro(openPostenCents)} />
         </div>
 
         {/* Inventory Table */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-4">
-          <h2 className="text-lg font-semibold">Getränkebestand (Flaschen)</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="p-2 text-left">Getränk</th>
-                  <th className="p-2 text-right">Bestand</th>
-                  <th className="p-2 text-right">Gesamt verkauft</th>
-                  <th className="p-2 text-right">EK / Kiste (€)</th>
-                  <th className="p-2 text-right">EK / Flasche (€)</th>
-                  <th className="p-2 text-right">VK / Flasche (€)</th>
+        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow">
+          <h2 className="text-lg font-semibold mb-2">Getränkebestand (Flaschen)</h2>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-gray-400 border-b border-gray-700">
+                <th className="p-2 text-left">Getränk</th>
+                <th className="p-2 text-right">Bestand</th>
+                <th className="p-2 text-right">Verkauft</th>
+                <th className="p-2 text-right">EK/Kiste</th>
+                <th className="p-2 text-right">EK/Flasche</th>
+                <th className="p-2 text-right">VK/Flasche</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inventory.map((d) => (
+                <tr key={d.id} className="border-t border-gray-700">
+                  <td className="p-2">{d.name}</td>
+                  <td className="p-2 text-right">{d.stock_bottles}</td>
+                  <td className="p-2 text-right">{d.sold_bottles_total}</td>
+                  <td className="p-2 text-right">{(drinks.find((x) => x.id === d.id)?.ek_crate_price_cents || 0) / 100}</td>
+                  <td className="p-2 text-right">{d.ek_per_bottle?.toFixed(2)}</td>
+                  <td className="p-2 text-right">{d.vk_per_bottle.toFixed(2)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {inventory.map((row) => {
-                  const ekBottle = row.ek_per_bottle != null ? row.ek_per_bottle.toFixed(2) : ''
-                  const ekCrate = drinkById.get(row.id)?.ek_crate_price_cents
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* Payments */}
+        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+          <h2 className="text-lg font-semibold">💳 Verifizierte Zahlungen</h2>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-gray-400 border-b border-gray-700">
+                <th className="p-2 text-left">Datum</th>
+                <th className="p-2 text-left">Nutzer</th>
+                <th className="p-2 text-left">Methode</th>
+                <th className="p-2 text-right">Betrag</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentsInRange.length === 0 ? (
+                <tr><td colSpan={4} className="p-2 text-gray-400">Keine verifizierten Zahlungen.</td></tr>
+              ) : (
+                paymentsInRange.map((p) => {
+                  const prof = Array.isArray(p.profiles) ? p.profiles[0] : p.profiles
+                  const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
                   return (
-                    <tr key={row.id} className="border-t border-gray-700">
-                      <td className="p-2">{row.name}</td>
-                      <td className="p-2 text-right">{row.stock_bottles}</td>
-                      <td className="p-2 text-right">{row.sold_bottles_total}</td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          defaultValue={ekCrate ? (ekCrate / 100).toFixed(2) : ''}
-                          onBlur={(e) => {
-                            const v = parseFloat(e.target.value || '0')
-                            if (v > 0) updateEKCrate(row.id, v)
-                          }}
-                          className="bg-gray-900 border border-gray-700 rounded text-right w-28 p-1"
-                        />
-                      </td>
-                      <td className="p-2 text-right">{ekBottle}</td>
-                      <td className="p-2 text-right">{row.vk_per_bottle.toFixed(2)}</td>
+                    <tr key={p.id} className="border-t border-gray-700">
+                      <td className="p-2">{new Date(p.created_at).toLocaleString('de-DE')}</td>
+                      <td className="p-2">{userName}</td>
+                      <td className="p-2">{p.method === 'paypal' ? 'PayPal' : 'Bar'}</td>
+                      <td className="p-2 text-right">{euro(p.amount_cents)}</td>
                     </tr>
                   )
-                })}
-              </tbody>
-            </table>
-          </div>
+                })
+              )}
+            </tbody>
+          </table>
         </section>
 
-        {/* Bottle Purchase */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">Zugang buchen (Flaschen)</h2>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <select
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              value={purchaseForm.drink_id}
-              onChange={(e) => setPurchaseForm((p) => ({ ...p, drink_id: e.target.value }))}
-            >
-              <option value="">Getränk wählen…</option>
-              {drinks.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-            <input
-              type="number"
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              placeholder="Anzahl Flaschen"
-              value={purchaseForm.bottles}
-              onChange={(e) => setPurchaseForm((p) => ({ ...p, bottles: e.target.value }))}
-            />
-            <input
-              type="number"
-              step="0.01"
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              placeholder="EK gesamt (€)"
-              value={purchaseForm.total_price_eur}
-              onChange={(e) => setPurchaseForm((p) => ({ ...p, total_price_eur: e.target.value }))}
-            />
-            <div className="self-center text-gray-400 text-sm">
-              EK/Flasche:{' '}
-              {(() => {
-                const b = Number(purchaseForm.bottles)
-                const eur = Number(purchaseForm.total_price_eur)
-                if (b > 0 && eur > 0) return (eur / b).toFixed(2) + ' €'
-                return '-'
-              })()}
-            </div>
-            <button onClick={saveBottlePurchase} className="bg-green-700 hover:bg-green-800 rounded p-2 font-medium">
-              Speichern
-            </button>
-          </div>
-          <p className="text-xs text-gray-400">Hinweis: Speichert intern als Kistenmenge = Flaschen/20 (mit Dezimalstellen) und EK = Gesamtpreis.</p>
+        {/* Freibier Kisten */}
+        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-2">
+          <h2 className="text-lg font-semibold">🎁 Bereitgestellte Kisten (App-Freibier)</h2>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-gray-400 border-b border-gray-700">
+                <th className="p-2 text-left">Datum</th>
+                <th className="p-2 text-left">Getränk</th>
+                <th className="p-2 text-right">Betrag</th>
+              </tr>
+            </thead>
+            <tbody>
+              {consInRange.filter((c) => c.source === 'crate' && !c.via_terminal).length === 0 ? (
+                <tr><td colSpan={3} className="p-2 text-gray-400">Keine bereitgestellten Kisten im Zeitraum.</td></tr>
+              ) : (
+                consInRange
+                  .filter((c) => c.source === 'crate' && !c.via_terminal)
+                  .map((c) => {
+                    const drink = drinks.find((d) => d.id === c.drink_id)
+                    return (
+                      <tr key={c.id} className="border-t border-gray-700">
+                        <td className="p-2">{new Date(c.created_at).toLocaleString('de-DE')}</td>
+                        <td className="p-2">{drink?.name || 'Unbekannt'}</td>
+                        <td className="p-2 text-right">{euro(c.unit_price_cents || 0)}</td>
+                      </tr>
+                    )
+                  })
+              )}
+            </tbody>
+          </table>
         </section>
 
-        {/* Stock Adjustment */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">Bestand korrigieren (± Flaschen)</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <select
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              value={adjustForm.drink_id}
-              onChange={(e) => setAdjustForm((p) => ({ ...p, drink_id: e.target.value }))}
-            >
-              <option value="">Getränk wählen…</option>
-              {drinks.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-            <input
-              type="number"
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              placeholder="± Flaschen (z.B. -3)"
-              value={adjustForm.delta_bottles}
-              onChange={(e) => setAdjustForm((p) => ({ ...p, delta_bottles: e.target.value }))}
-            />
-            <input
-              type="text"
-              className="bg-gray-900 border border-gray-700 rounded p-2"
-              placeholder="Notiz (Inventur/Bruch/Verlust)… (nur intern)"
-              value={adjustForm.note}
-              onChange={(e) => setAdjustForm((p) => ({ ...p, note: e.target.value }))}
-            />
-            <button onClick={applyStockAdjustment} className="bg-blue-700 hover:bg-blue-800 rounded p-2 font-medium">
-              Korrigieren
-            </button>
-          </div>
-          <p className="text-xs text-gray-400">Hinweis: Korrekturen werden als 0-€ „Purchase“ gespeichert (bleibt in bestehenden Tabellen).</p>
-        </section>
-
-        {/* Payments Detail */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">💳 Einnahmen (verifizierte Zahlungen im Zeitraum)</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="p-2 text-left">Datum</th>
-                  <th className="p-2 text-left">Nutzer</th>
-                  <th className="p-2 text-left">Methode</th>
-                  <th className="p-2 text-right">Betrag</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paymentsInRange.length === 0 ? (
-                  <tr><td className="p-3 text-gray-400" colSpan={4}>Keine verifizierten Zahlungen im Zeitraum.</td></tr>
-                ) : (
-                  paymentsInRange
-                    .slice()
-                    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-                    .map((p) => {
-                      const prof = Array.isArray(p.profiles) ? p.profiles[0] : p.profiles
-                      const userName =
-                        `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
-                      return (
-                        <tr key={p.id} className="border-t border-gray-700">
-                          <td className="p-2">{new Date(p.created_at).toLocaleString('de-DE')}</td>
-                          <td className="p-2">{userName}</td>
-                          <td className="p-2">{p.method === 'paypal' ? 'PayPal' : 'Bar'}</td>
-                          <td className="p-2 text-right">{euro(p.amount_cents)}</td>
-                        </tr>
-                      )
-                    })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Sales Detail (inkl. Freibier-Erkennung) */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">🧾 Verkäufe (aus Verbuchungen im Zeitraum)</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="p-2 text-left">Datum</th>
-                  <th className="p-2 text-left">Typ</th>
-                  <th className="p-2 text-left">Getränk</th>
-                  <th className="p-2 text-right">Menge</th>
-                  <th className="p-2 text-right">Summe</th>
-                </tr>
-              </thead>
-              <tbody>
-                {consInRange.length === 0 ? (
-                  <tr><td className="p-3 text-gray-400" colSpan={5}>Keine Verbuchungen im Zeitraum.</td></tr>
-                ) : (
-                  consInRange
-                    .filter((c) => (c.unit_price_cents || 0) >= 0)
-                    .map((c) => {
-                      const drink = c.drink_id ? drinkById.get(c.drink_id) : undefined
-                      const name = drink?.name || '—'
-                      const isCrate = c.source === 'crate'
-                      const type = isCrate ? 'Freibier (Kistenbereitstellung)' : (c.unit_price_cents || 0) > 0 ? 'Verkauf' : 'Freibier (Verbrauch)'
-                      const sum = (c.unit_price_cents || 0) * (c.quantity || 0)
-                      return (
-                        <tr key={c.id} className="border-t border-gray-700">
-                          <td className="p-2">{new Date(c.created_at).toLocaleString('de-DE')}</td>
-                          <td className="p-2">{type}</td>
-                          <td className="p-2">{name}</td>
-                          <td className="p-2 text-right">{c.quantity}</td>
-                          <td className="p-2 text-right">{sum > 0 ? euro(sum) : '—'}</td>
-                        </tr>
-                      )
-                    })
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm pt-2">
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Bezahlte Verkäufe (Info): <b>{euro(paidSalesCents)}</b></div>
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Freibier-Einnahmen (Kiste): <b>{euro(freeBeerRevenueCents)}</b></div>
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Verifizierte Zahlungen: <b>{euro(totalPaymentsCents)}</b></div>
-          </div>
-        </section>
-
-        {/* Toasts */}
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div
@@ -558,7 +336,6 @@ export default function InventoryRevenuePage() {
   )
 }
 
-/** ---------- Small UI helpers ---------- */
 function Stat({ title, value }: { title: string; value: string }) {
   return (
     <div className="bg-gray-800/70 border border-gray-700 rounded-xl p-4 text-center shadow">
