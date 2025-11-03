@@ -323,7 +323,7 @@ export default function ActivityPage() {
                         {/* Kistenbereitstellungen */}
                         {crates.length > 0 && (
                           <ul className="text-sm text-green-400 mt-1 space-y-1">
-                            {crates.map((c, i) => (
+                            {crates.map((c: { user: string; drink: string }, i: number) => (
                               <li key={i}>🍾 {c.user} hat eine Kiste {c.drink} bereitgestellt</li>
                             ))}
                           </ul>
