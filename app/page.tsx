@@ -146,17 +146,7 @@ export default function HomePage() {
     
   }, [])
 
-// 🔁 Automatischer Seitenreload alle 10 Minuten (stabil)
-useEffect(() => {
-  const TEN_MINUTES = 30 * 1000 // 30 Sekunden Testintervall
 
-  const reloadTimer = setInterval(() => {
-    console.log('🔄 Automatischer Reload nach 10 Minuten')
-    window.location.reload()
-  }, TEN_MINUTES)
-
-  return () => clearInterval(reloadTimer)
-}, [])
 
 
 
