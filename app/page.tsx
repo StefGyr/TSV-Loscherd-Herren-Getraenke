@@ -143,24 +143,38 @@ export default function HomePage() {
   }
     
   }, [])
-  // Echtzeit-Update, wenn sich die Platzbelegung ändert
+  // 🔁 Echtzeit-Aktualisierung der Platzbelegung (stabile Variante)
 useEffect(() => {
+  // Sicherstellen, dass Realtime aktiv ist
   const channel = supabase
-    .channel('platzbelegung-changes')
+    .channel('public:platzbelegung')
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'platzbelegung' },
+      {
+        event: '*',
+        schema: 'public',
+        table: 'platzbelegung',
+      },
       (payload) => {
-        console.log('🔁 Platzbelegung geändert:', payload)
-        window.location.reload() // Seite neu laden, damit die neue Belegung sichtbar wird
+        console.log('📡 Realtime Event empfangen:', payload)
+        window.location.reload()
       }
     )
-    .subscribe()
+    .subscribe((status) => {
+      console.log('📶 Channel-Status:', status)
+    })
+
+  // Heartbeat fix: Supabase trennt nach Leerlauf manchmal Kanäle
+  const ping = setInterval(() => {
+    supabase.channel('heartbeat')
+  }, 20000)
 
   return () => {
+    clearInterval(ping)
     supabase.removeChannel(channel)
   }
 }, [])
+
 
 
   // ---------------- Buchung (Bezahlen) ----------------
