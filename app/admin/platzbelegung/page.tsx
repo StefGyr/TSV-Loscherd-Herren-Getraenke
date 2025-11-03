@@ -63,14 +63,18 @@ export default function PlatzbelegungAdmin() {
   console.error('Fehler beim Einfügen:', insertError)
   setMessage(`❌ Fehler beim Speichern: ${insertError.message}`)
 } else {
+  // 🔄 Sync-Signal setzen – erstellt oder aktualisiert automatisch die Zeile
   await supabase
     .from('sync_status')
-    .update({ last_update: new Date().toISOString() })
-    .eq('key', 'platzbelegung')
+    .upsert(
+      { key: 'platzbelegung', last_update: new Date().toISOString() },
+      { onConflict: 'key' }
+    )
 
   setMessage(`✅ ${mapped.length} Einträge erfolgreich importiert!`)
   setRows([]) // CSV-Tabelle zurücksetzen
 }
+
 
 
   }
