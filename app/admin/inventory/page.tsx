@@ -238,7 +238,7 @@ export default function InventoryRevenuePage() {
     const rows: string[] = []
     const pushSection = (title:string, headers:string[], data:any[], mapRow:(x:any)=>any[])=>{
       rows.push(`# ${title}`); rows.push(headers.join(';'))
-      for(const x of (data?.data||[])) rows.push(mapRow(x).map(v=>String(v ?? '')).join(';'))
+      for (const x of (data || [])) rows.push(mapRow(x).map(v => String(v ?? '')).join(';'))
       rows.push('') // blank line
     }
 
