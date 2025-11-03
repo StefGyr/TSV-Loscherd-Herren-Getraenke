@@ -38,27 +38,41 @@ export default function HomePage() {
 
   // ---------------- Loader ----------------
   const refreshBookings = async () => {
-    const { data: auth } = await supabase.auth.getUser()
-    const user = auth?.user
-    if (!user) return
-    const { data } = await supabase
-      .from('consumptions')
-      .select('quantity, unit_price_cents, created_at, drinks(name)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(8)
-    setBookings(
-      (data || []).map((r: any) => ({
+  const { data: auth } = await supabase.auth.getUser()
+  const user = auth?.user
+  if (!user) return
+
+  const { data } = await supabase
+    .from('consumptions')
+    .select('quantity, unit_price_cents, source, created_at, drinks(name)')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(8)
+
+  setBookings(
+    (data || []).map((r: any) => {
+      // 🔹 Text dynamisch je nach Typ der Buchung
+      let text = ''
+
+      if (r.source === 'crate') {
+        // Kistenbereitstellung
+        text = `🎉 ${r.drinks?.name ?? 'Unbekannt'} • Kiste / Freibier (${euro(r.unit_price_cents)})`
+      } else if (r.unit_price_cents === 0) {
+        // Freibierverbrauch
+        text = `🎉 ${r.quantity}× ${r.drinks?.name ?? 'Unbekannt'} (Freibier)`
+      } else {
+        // Normale Buchung
+        text = `${r.quantity}× ${r.drinks?.name ?? 'Unbekannt'} (${euro(r.unit_price_cents * r.quantity)})`
+      }
+
+      return {
         created_at: r.created_at,
-        text:
-          r.unit_price_cents === 0
-            ? `🎉 ${r.quantity}× ${r.drinks?.name ?? 'Unbekannt'} (Freibier)`
-            : `${r.quantity}× ${r.drinks?.name ?? 'Unbekannt'} (${euro(
-                r.unit_price_cents * r.quantity,
-              )})`,
-      })),
-    )
-  }
+        text,
+      }
+    }),
+  )
+}
+
 
   const loadMyWeekStats = async () => {
     const { data: auth } = await supabase.auth.getUser()
