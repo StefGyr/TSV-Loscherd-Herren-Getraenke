@@ -25,7 +25,6 @@ export default function ActivityPage() {
   const [rankingMode, setRankingMode] = useState<'7days' | 'all'>('7days')
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [crateData, setCrateData] = useState<any[]>([])
 
   useEffect(() => {
     const load = async () => {
@@ -47,7 +46,7 @@ export default function ActivityPage() {
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // 🔹 Hauptabfrage erweitert mit source + unit_price_cents
+      // 🔹 Hauptabfrage erweitert
       let query = supabase
         .from('consumptions')
         .select(`
@@ -67,11 +66,6 @@ export default function ActivityPage() {
         setLoading(false)
         return
       }
-
-      // --- Freibier-Kisten-Logik ---
-      const crateEntries =
-        data?.filter((c) => c.source === 'crate' && (c.unit_price_cents ?? 0) > 0) || []
-      setCrateData(crateEntries)
 
       /* --- Tagesstatistik --- */
       const todayStr = now.toISOString().slice(0, 10)
@@ -107,8 +101,12 @@ export default function ActivityPage() {
         }))
         .reverse()
 
-      /* --- Gruppierung pro Tag --- */
-      const grouped: Record<string, Record<string, Record<string, number>>> = {}
+      /* --- Gruppierung pro Tag mit Freibier + Kistenbereitstellung --- */
+      const grouped: Record<
+        string,
+        { drinks: Record<string, Record<string, number>>; crates: any[] }
+      > = {}
+
       for (const c of data || []) {
         const date = c.created_at.slice(0, 10)
         const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
@@ -116,13 +114,24 @@ export default function ActivityPage() {
         const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
         const drinkName = drinkObj?.name || 'Unbekannt'
 
+        grouped[date] = grouped[date] || { drinks: {}, crates: [] }
+
+        // 🔸 Freibier-Check
         const isFree = c.unit_price_cents === 0 || c.source === 'free'
         const label = isFree ? `${drinkName} (Freibier)` : drinkName
 
-        grouped[date] = grouped[date] || {}
-        grouped[date][userName] = grouped[date][userName] || {}
-        grouped[date][userName][label] =
-          (grouped[date][userName][label] || 0) + (c.quantity || 0)
+        // 🔸 normale Drinks
+        grouped[date].drinks[userName] = grouped[date].drinks[userName] || {}
+        grouped[date].drinks[userName][label] =
+          (grouped[date].drinks[userName][label] || 0) + (c.quantity || 0)
+
+        // 🔸 Kistenbereitstellung
+        if (c.source === 'crate' && (c.unit_price_cents ?? 0) > 0) {
+          grouped[date].crates.push({
+            user: userName,
+            drink: drinkName,
+          })
+        }
       }
 
       /* --- Bestenliste --- */
@@ -256,7 +265,7 @@ export default function ActivityPage() {
               </table>
             </section>
 
-            {/* --- Tagesübersicht (Detail) --- */}
+            {/* --- Tagesübersicht (Detail) inkl. Freibier & Kisten --- */}
             <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
               <h2 className="text-lg font-semibold mb-3">📅 Tagesübersicht (wer was getrunken hat)</h2>
               {Object.keys(dailyGrouped).length === 0 ? (
@@ -264,7 +273,9 @@ export default function ActivityPage() {
               ) : (
                 Object.entries(dailyGrouped)
                   .sort(([a], [b]) => b.localeCompare(a))
-                  .map(([date, users]) => {
+                  .map(([date, entry]) => {
+                    const users = entry.drinks
+                    const crates = entry.crates
                     const dayTotal = Object.values(users).reduce((sum: number, drinks: any) => {
                       const drinkSum = Object.values(drinks as Record<string, number>).reduce(
                         (s, n) => s + n,
@@ -280,8 +291,14 @@ export default function ActivityPage() {
                             day: '2-digit',
                             month: '2-digit',
                           })}{' '}
-                          • <span className="text-gray-300 text-sm">Gesamt: {dayTotal} Getränke</span>
+                          •{' '}
+                          <span className="text-gray-300 text-sm">
+                            Gesamt: {dayTotal} Getränke
+                            {crates.length > 0 && ` • ${crates.length} Kiste(n) Freibier`}
+                          </span>
                         </h3>
+
+                        {/* Getränke */}
                         <table className="w-full text-sm border-collapse mb-2">
                           <thead>
                             <tr className="text-gray-400 border-b border-gray-700">
@@ -302,32 +319,20 @@ export default function ActivityPage() {
                             )}
                           </tbody>
                         </table>
+
+                        {/* Kistenbereitstellungen */}
+                        {crates.length > 0 && (
+                          <ul className="text-sm text-green-400 mt-1 space-y-1">
+                            {crates.map((c, i) => (
+                              <li key={i}>🍾 {c.user} hat eine Kiste {c.drink} bereitgestellt</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )
                   })
               )}
             </section>
-
-            {/* --- Bereitgestellte Freibier-Kisten --- */}
-            {crateData.length > 0 && (
-              <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
-                <h2 className="text-lg font-semibold mb-3">🍾 Bereitgestellte Freibier-Kisten</h2>
-                <ul className="space-y-1 text-sm">
-                  {crateData.map((c, i) => {
-                    const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
-                    const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
-                    const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim()
-                    const drink = drinkObj?.name || 'Unbekannt'
-                    return (
-                      <li key={i} className="flex justify-between border-b border-gray-800 py-1">
-                        <span>{name}</span>
-                        <span className="text-green-400">hat eine Kiste {drink} bereitgestellt</span>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </section>
-            )}
           </>
         )}
       </div>
