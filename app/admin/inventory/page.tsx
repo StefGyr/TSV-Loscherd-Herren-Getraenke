@@ -338,6 +338,33 @@ export default function InventoryRevenuePage() {
     const ekCrate = drinks.find((d) => d.id === row.id)?.ek_crate_price_cents
     const th = thresholdByDrink.get(row.id)
     const low = th && row.stock < th.threshold_bottles
+    const currentThreshold = th?.threshold_bottles ?? 20
+    const currentEmails = th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de'
+
+    // 🔹 Funktion zum Test-Mail-Versand
+    const sendTestMail = async () => {
+      try {
+        const res = await fetch('/api/notify-low-stock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            drinkName: row.name,
+            stock: row.stock,
+            threshold: currentThreshold,
+            recipients: currentEmails,
+            test: true,
+          }),
+        })
+        if (res.ok) {
+          addToast(`Test-Mail für ${row.name} gesendet ✅`)
+        } else {
+          const err = await res.text()
+          addToast(`Fehler beim Test-Mail: ${err}`, 'error')
+        }
+      } catch (err: any) {
+        addToast(`Test-Mail fehlgeschlagen: ${String(err)}`, 'error')
+      }
+    }
 
     return (
       <tr key={row.id} className={`border-t border-gray-700 ${low ? 'bg-red-950/30' : ''}`}>
@@ -352,9 +379,9 @@ export default function InventoryRevenuePage() {
         <td className="p-2 text-right">
           <input
             type="number"
-            defaultValue={th?.threshold_bottles ?? 0}
+            defaultValue={currentThreshold}
             onBlur={(e) =>
-              saveThreshold(row.id, parseInt(e.target.value || '0'), th?.notify_email || '')
+              saveThreshold(row.id, parseInt(e.target.value || '0'), currentEmails)
             }
             className="bg-gray-900 border border-gray-700 rounded text-right w-20 p-1"
           />
@@ -364,13 +391,11 @@ export default function InventoryRevenuePage() {
         <td className="p-2">
           <input
             type="text"
-            defaultValue={
-              th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de'
-            }
+            defaultValue={currentEmails}
             onBlur={(e) =>
               saveThreshold(
                 row.id,
-                th?.threshold_bottles ?? 20,
+                currentThreshold,
                 e.target.value.trim()
               )
             }
@@ -378,26 +403,30 @@ export default function InventoryRevenuePage() {
           />
         </td>
 
-        {/* 🔹 Button */}
-        <td className="p-2 text-right">
+        {/* 🔹 Aktionen */}
+        <td className="p-2 text-right space-x-1">
           <button
             onClick={() =>
-              saveThreshold(
-                row.id,
-                th?.threshold_bottles ?? 20,
-                th?.notify_email ??
-                  'bennybecool@gmx.de,geyer1992@hotmail.de'
-              )
+              saveThreshold(row.id, currentThreshold, currentEmails)
             }
             className="bg-blue-700 hover:bg-blue-800 rounded px-2 py-1 text-sm"
           >
-            Speichern
+            💾 Speichern
+          </button>
+
+          {/* ✉️ Test-Mail */}
+          <button
+            onClick={sendTestMail}
+            className="bg-teal-700 hover:bg-teal-800 rounded px-2 py-1 text-sm"
+          >
+            ✉️ Test-Mail
           </button>
         </td>
       </tr>
     )
   })}
 </tbody>
+
 
             </table>
           </div>
