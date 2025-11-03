@@ -6,7 +6,7 @@ import TopNav from '@/components/TopNav'
 import AdminNav from '@/components/AdminNav'
 import { AnimatePresence, motion } from 'framer-motion'
 
-// ---------- Types ----------
+/** ---------- Types ---------- */
 type Drink = {
   id: number
   name: string
@@ -19,54 +19,49 @@ type Consumption = {
   drink_id: number | null
   quantity: number
   unit_price_cents: number | null
+  source: 'single' | 'crate' | string | null
   created_at: string
+  user_id?: string
 }
 
 type Purchase = {
   id: number
   drink_id: number
-  quantity: number // wir verwenden hier bottles/20 => Bruchteile einer Kiste
-  crate_price_cents: number // hier speichern wir den EK-Gesamtbetrag für diese Buchung
+  quantity: number // wird für Flaschenzugang als bottles/20 verwendet (Dezimal möglich)
+  crate_price_cents: number
   created_at: string
 }
 
-type Profile = {
-  id: string
-  open_balance_cents: number | null
+type Payment = {
+  id: number
+  user_id: string
+  amount_cents: number
+  method: 'bar' | 'paypal' | string
+  verified: boolean
+  created_at: string
+  profiles?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[]
 }
 
-// ---------- Helpers ----------
+type Profile = { id: string; open_balance_cents: number | null; first_name?: string | null; last_name?: string | null }
+
 const BOTTLES_PER_CRATE = 20
 
 function euro(cents: number) {
   return (cents / 100).toFixed(2) + ' €'
 }
-function startOfToday(): Date {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-function startOfWeek(): Date {
-  const d = startOfToday()
-  const day = d.getDay() || 7 // Mo=1..So=7
-  d.setDate(d.getDate() - (day - 1))
-  return d
-}
-function startOfMonth(): Date {
-  const d = startOfToday()
-  d.setDate(1)
-  return d
-}
+function startOfToday(): Date { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+function startOfWeek(): Date { const d = startOfToday(); const day = d.getDay() || 7; d.setDate(d.getDate() - (day - 1)); return d }
+function startOfMonth(): Date { const d = startOfToday(); d.setDate(1); return d }
 
 export default function InventoryRevenuePage() {
-  // data
+  /** ---------- State ---------- */
   const [drinks, setDrinks] = useState<Drink[]>([])
   const [consumptions, setConsumptions] = useState<Consumption[]>([])
   const [purchases, setPurchases] = useState<Purchase[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
 
-  // toasts
   const [toasts, setToasts] = useState<{ id: number; text: string; type?: 'success' | 'error' }[]>([])
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -74,12 +69,14 @@ export default function InventoryRevenuePage() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
   }
 
-  // date filter
+  /** ---------- Date filter ---------- */
   const [rangePreset, setRangePreset] = useState<'today' | 'week' | 'month' | 'custom'>('month')
   const [from, setFrom] = useState<string>(() => startOfMonth().toISOString().slice(0, 10))
   const [to, setTo] = useState<string>(() => new Date().toISOString().slice(0, 10))
 
+  // Preset -> setzt from/to nur, wenn NICHT benutzerdefiniert
   useEffect(() => {
+    if (rangePreset === 'custom') return
     if (rangePreset === 'today') {
       setFrom(startOfToday().toISOString().slice(0, 10))
       setTo(new Date().toISOString().slice(0, 10))
@@ -92,121 +89,91 @@ export default function InventoryRevenuePage() {
     }
   }, [rangePreset])
 
+  /** ---------- Load data ---------- */
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const [{ data: drinksData }, { data: consData }, { data: purchData }, { data: profData }] = await Promise.all([
-        supabase.from('drinks').select('id,name,price_cents,ek_crate_price_cents'),
-        supabase.from('consumptions').select('id,drink_id,quantity,unit_price_cents,created_at'),
-        supabase.from('purchases').select('id,drink_id,quantity,crate_price_cents,created_at'),
-        supabase.from('profiles').select('id,open_balance_cents'),
-      ])
+      const [{ data: drinksData }, { data: consData }, { data: purchData }, { data: payData }, { data: profData }] =
+        await Promise.all([
+          supabase.from('drinks').select('id,name,price_cents,ek_crate_price_cents'),
+          supabase.from('consumptions').select('id,drink_id,quantity,unit_price_cents,source,created_at,user_id'),
+          supabase.from('purchases').select('id,drink_id,quantity,crate_price_cents,created_at'),
+          supabase
+            .from('payments')
+            .select('id,user_id,amount_cents,method,verified,created_at,profiles(first_name,last_name)')
+            .eq('verified', true),
+          supabase.from('profiles').select('id,open_balance_cents,first_name,last_name'),
+        ])
+
       setDrinks(drinksData || [])
       setConsumptions(consData || [])
       setPurchases(purchData || [])
+      setPayments(payData || [])
       setProfiles(profData || [])
       setLoading(false)
     }
     load()
   }, [])
 
-  // join helpers
+  /** ---------- Helpers ---------- */
   const drinkById = useMemo(() => {
     const map = new Map<number, Drink>()
     drinks.forEach((d) => map.set(d.id, d))
     return map
   }, [drinks])
 
-  // FILTER by date (inclusive)
-  const consInRange = useMemo(() => {
+  const inRange = (iso: string) => {
+    const d = new Date(iso)
     const fromD = new Date(from + 'T00:00:00')
     const toD = new Date(to + 'T23:59:59')
-    return consumptions.filter((c) => {
-      const d = new Date(c.created_at)
-      return d >= fromD && d <= toD
-    })
-  }, [consumptions, from, to])
+    return d >= fromD && d <= toD
+  }
 
-  const purchInRange = useMemo(() => {
-    const fromD = new Date(from + 'T00:00:00')
-    const toD = new Date(to + 'T23:59:59')
-    return purchases.filter((p) => {
-      const d = new Date(p.created_at)
-      return d >= fromD && d <= toD
-    })
-  }, [purchases, from, to])
+  const consInRange = useMemo(() => consumptions.filter((c) => inRange(c.created_at)), [consumptions, from, to])
+  const purchInRange = useMemo(() => purchases.filter((p) => inRange(p.created_at)), [purchases, from, to])
+  const paymentsInRange = useMemo(() => payments.filter((p) => inRange(p.created_at)), [payments, from, to])
 
-  // ---- Categorisierung (bleibt in vorhandenen Tabellen) ----
-  // Erkennung über Getränkenamen (konventionell): "Trinkgeld", "Guthaben", "Freibier"
-  const isTip = (drinkName?: string) => (drinkName || '').toLowerCase().includes('trinkgeld')
-  const isTopUp = (drinkName?: string) =>
-    (drinkName || '').toLowerCase().includes('guthaben') ||
-    (drinkName || '').toLowerCase().includes('auflad')
-  const isFreeBeerRevenue = (drinkName?: string) =>
-    (drinkName || '').toLowerCase().includes('freibier') ||
-    (drinkName || '').toLowerCase().includes('kiste')
+  /** ---------- Einnahmen/Kosten/Gewinn ---------- */
+  // Einnahmen gesamt = verifizierte Zahlungen
+  const totalPaymentsCents = useMemo(
+    () => paymentsInRange.reduce((s, p) => s + (p.amount_cents || 0), 0),
+    [paymentsInRange]
+  )
 
-  // Einnahmen = nur bezahlte Getränke (unit_price_cents > 0)
-  const paidConsumptions = useMemo(
-    () => consInRange.filter((c) => (c.unit_price_cents || 0) > 0),
+  // Freibier-Einnahmen: consumptions mit source='crate' (Kostenpflichtige Kistenbereitstellung)
+  const freeBeerRevenueCents = useMemo(
+    () =>
+      consInRange
+        .filter((c) => c.source === 'crate' && (c.unit_price_cents || 0) > 0)
+        .reduce((s, c) => s + (c.unit_price_cents || 0) * (c.quantity || 0), 0),
     [consInRange]
   )
 
-  const salesRevenueCents = useMemo(() => {
-    return paidConsumptions
-      .filter((c) => {
-        const d = c.drink_id ? drinkById.get(c.drink_id) : undefined
-        const name = d?.name
-        return !isTip(name) && !isTopUp(name) && !isFreeBeerRevenue(name)
-      })
-      .reduce((sum, c) => sum + (c.unit_price_cents || 0) * (c.quantity || 0), 0)
-  }, [paidConsumptions, drinkById])
-
-  const freeBeerRevenueCents = useMemo(() => {
-    return paidConsumptions
-      .filter((c) => {
-        const d = c.drink_id ? drinkById.get(c.drink_id) : undefined
-        return isFreeBeerRevenue(d?.name)
-      })
-      .reduce((sum, c) => sum + (c.unit_price_cents || 0) * (c.quantity || 0), 0)
-  }, [paidConsumptions, drinkById])
-
-  const tipsCents = useMemo(() => {
-    return paidConsumptions
-      .filter((c) => {
-        const d = c.drink_id ? drinkById.get(c.drink_id) : undefined
-        return isTip(d?.name)
-      })
-      .reduce((sum, c) => sum + (c.unit_price_cents || 0) * (c.quantity || 0), 0)
-  }, [paidConsumptions, drinkById])
-
-  const topUpsCents = useMemo(() => {
-    return paidConsumptions
-      .filter((c) => {
-        const d = c.drink_id ? drinkById.get(c.drink_id) : undefined
-        return isTopUp(d?.name)
-      })
-      .reduce((sum, c) => sum + (c.unit_price_cents || 0) * (c.quantity || 0), 0)
-  }, [paidConsumptions, drinkById])
-
-  const totalRevenueCents = useMemo(
-    () => salesRevenueCents + freeBeerRevenueCents + tipsCents + topUpsCents,
-    [salesRevenueCents, freeBeerRevenueCents, tipsCents, topUpsCents]
+  // Bezahlte Verkäufe (Info-Stat) – getrennt von Zahlungen, rein aus Verkäufen
+  const paidSalesCents = useMemo(
+    () =>
+      consInRange
+        .filter((c) => (c.unit_price_cents || 0) > 0 && c.source !== 'crate')
+        .reduce((s, c) => s + (c.unit_price_cents || 0) * (c.quantity || 0), 0),
+    [consInRange]
   )
 
-  // Kosten im Zeitraum (EK gesamt je Purchase)
-  const costCents = useMemo(() => {
-    return purchInRange.reduce((sum, p) => sum + (p.crate_price_cents || 0), 0)
-  }, [purchInRange])
+  // EK-Kosten im Zeitraum
+  const costCents = useMemo(
+    () => purchInRange.reduce((s, p) => s + (p.crate_price_cents || 0), 0),
+    [purchInRange]
+  )
 
-  const profitCents = useMemo(() => totalRevenueCents - costCents, [totalRevenueCents, costCents])
+  // Gewinn = Zahlungen – Kosten
+  const profitCents = useMemo(() => totalPaymentsCents - costCents, [totalPaymentsCents, costCents])
 
+  // Offene Posten gesamt
   const openPostenCents = useMemo(
     () => profiles.reduce((sum, p) => sum + (p.open_balance_cents || 0), 0),
     [profiles]
   )
 
-  // Bestand nach Flaschen
+  /** ---------- Bestand (Flaschen) ---------- */
   const inventory = useMemo(() => {
     const boughtByDrink = new Map<number, number>() // bottles
     purchases.forEach((p) => {
@@ -229,14 +196,14 @@ export default function InventoryRevenuePage() {
         id: d.id,
         name: d.name,
         stock_bottles: current,
-        sold_bottles: sold,
+        sold_bottles_total: sold,
         ek_per_bottle: ekBottle,
         vk_per_bottle: vkBottle,
       }
     })
   }, [drinks, purchases, consumptions])
 
-  // ---- Actions: Bottle purchase, Stock adjust, Update EK/Kiste ----
+  /** ---------- Actions: Bottle purchase & Stock adjust & Update EK/Kiste ---------- */
   const [purchaseForm, setPurchaseForm] = useState<{ drink_id: string; bottles: string; total_price_eur: string }>({
     drink_id: '',
     bottles: '',
@@ -281,12 +248,11 @@ export default function InventoryRevenuePage() {
       addToast('Bitte Getränk und Delta (± Flaschen) angeben', 'error')
       return
     }
-    // Korrektur als 0€-Purchase (bleibt in bestehenden Tabellen)
     const crateQty = delta / BOTTLES_PER_CRATE
     const { error } = await supabase.from('purchases').insert({
       drink_id,
       quantity: crateQty,
-      crate_price_cents: 0,
+      crate_price_cents: 0, // Korrektur, ohne EK
     })
     if (error) {
       addToast('Bestandskorrektur fehlgeschlagen', 'error')
@@ -299,6 +265,7 @@ export default function InventoryRevenuePage() {
   }
 
   const updateEKCrate = async (drinkId: number, eur: number) => {
+    if (!eur || eur <= 0) return
     const { error } = await supabase
       .from('drinks')
       .update({ ek_crate_price_cents: Math.round(eur * 100) })
@@ -307,6 +274,7 @@ export default function InventoryRevenuePage() {
     else addToast('EK/Kiste aktualisiert')
   }
 
+  /** ---------- UI ---------- */
   if (loading) return <div className="p-6 text-center text-white">⏳ Lade Daten…</div>
 
   return (
@@ -349,11 +317,9 @@ export default function InventoryRevenuePage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-          <Stat title="Einnahmen (gesamt)" value={euro(totalRevenueCents)} />
-          <Stat title="• Normalverkauf" value={euro(salesRevenueCents)} />
-          <Stat title="• Freibier (Einnahmen)" value={euro(freeBeerRevenueCents)} />
-          <Stat title="• Trinkgeld" value={euro(tipsCents)} />
-          <Stat title="• Guthaben" value={euro(topUpsCents)} />
+          <Stat title="Einnahmen (verifizierte Zahlungen)" value={euro(totalPaymentsCents)} />
+          <Stat title="• davon: Freibier-Einnahmen" value={euro(freeBeerRevenueCents)} />
+          <Stat title="Bezahlte Verkäufe (Info)" value={euro(paidSalesCents)} />
           <Stat title="Kosten (EK)" value={euro(costCents)} />
           <Stat title="Gewinn" value={euro(profitCents)} />
           <Stat title="Offene Posten" value={euro(openPostenCents)} />
@@ -368,7 +334,7 @@ export default function InventoryRevenuePage() {
                 <tr className="text-gray-400 border-b border-gray-700">
                   <th className="p-2 text-left">Getränk</th>
                   <th className="p-2 text-right">Bestand</th>
-                  <th className="p-2 text-right">Verkauft (Zeitraum)</th>
+                  <th className="p-2 text-right">Gesamt verkauft</th>
                   <th className="p-2 text-right">EK / Kiste (€)</th>
                   <th className="p-2 text-right">EK / Flasche (€)</th>
                   <th className="p-2 text-right">VK / Flasche (€)</th>
@@ -377,23 +343,17 @@ export default function InventoryRevenuePage() {
               <tbody>
                 {inventory.map((row) => {
                   const ekBottle = row.ek_per_bottle != null ? row.ek_per_bottle.toFixed(2) : ''
+                  const ekCrate = drinkById.get(row.id)?.ek_crate_price_cents
                   return (
                     <tr key={row.id} className="border-t border-gray-700">
                       <td className="p-2">{row.name}</td>
                       <td className="p-2 text-right">{row.stock_bottles}</td>
-                      <td className="p-2 text-right">
-                        {
-                          // verkauft im Zeitraum:
-                          consInRange
-                            .filter((c) => c.drink_id === row.id)
-                            .reduce((s, c) => s + (c.quantity || 0), 0)
-                        }
-                      </td>
+                      <td className="p-2 text-right">{row.sold_bottles_total}</td>
                       <td className="p-2 text-right">
                         <input
                           type="number"
                           step="0.01"
-                          defaultValue={drinkById.get(row.id)?.ek_crate_price_cents ? (drinkById.get(row.id)!.ek_crate_price_cents! / 100).toFixed(2) : ''}
+                          defaultValue={ekCrate ? (ekCrate / 100).toFixed(2) : ''}
                           onBlur={(e) => {
                             const v = parseFloat(e.target.value || '0')
                             if (v > 0) updateEKCrate(row.id, v)
@@ -402,7 +362,7 @@ export default function InventoryRevenuePage() {
                         />
                       </td>
                       <td className="p-2 text-right">{ekBottle}</td>
-                      <td className="p-2 text-right">{(row.vk_per_bottle).toFixed(2)}</td>
+                      <td className="p-2 text-right">{row.vk_per_bottle.toFixed(2)}</td>
                     </tr>
                   )
                 })}
@@ -453,9 +413,7 @@ export default function InventoryRevenuePage() {
               Speichern
             </button>
           </div>
-          <p className="text-xs text-gray-400">
-            Hinweis: Speichert intern als Kistenmenge = Flaschen/20 (mit Dezimalstellen) und EK = Gesamtpreis.
-          </p>
+          <p className="text-xs text-gray-400">Hinweis: Speichert intern als Kistenmenge = Flaschen/20 (mit Dezimalstellen) und EK = Gesamtpreis.</p>
         </section>
 
         {/* Stock Adjustment */}
@@ -490,59 +448,93 @@ export default function InventoryRevenuePage() {
               Korrigieren
             </button>
           </div>
-          <p className="text-xs text-gray-400">
-            Hinweis: Korrekturen werden als 0-€-„Purchase“ gespeichert (bleibt in den bestehenden Tabellen).
-          </p>
+          <p className="text-xs text-gray-400">Hinweis: Korrekturen werden als 0-€ „Purchase“ gespeichert (bleibt in bestehenden Tabellen).</p>
         </section>
 
-        {/* Revenue detail table */}
+        {/* Payments Detail */}
         <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">Einnahmen – Details (Zeitraum)</h2>
+          <h2 className="text-lg font-semibold">💳 Einnahmen (verifizierte Zahlungen im Zeitraum)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-700">
+                  <th className="p-2 text-left">Datum</th>
+                  <th className="p-2 text-left">Nutzer</th>
+                  <th className="p-2 text-left">Methode</th>
+                  <th className="p-2 text-right">Betrag</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentsInRange.length === 0 ? (
+                  <tr><td className="p-3 text-gray-400" colSpan={4}>Keine verifizierten Zahlungen im Zeitraum.</td></tr>
+                ) : (
+                  paymentsInRange
+                    .slice()
+                    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+                    .map((p) => {
+                      const prof = Array.isArray(p.profiles) ? p.profiles[0] : p.profiles
+                      const userName =
+                        `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+                      return (
+                        <tr key={p.id} className="border-t border-gray-700">
+                          <td className="p-2">{new Date(p.created_at).toLocaleString('de-DE')}</td>
+                          <td className="p-2">{userName}</td>
+                          <td className="p-2">{p.method === 'paypal' ? 'PayPal' : 'Bar'}</td>
+                          <td className="p-2 text-right">{euro(p.amount_cents)}</td>
+                        </tr>
+                      )
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Sales Detail (inkl. Freibier-Erkennung) */}
+        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+          <h2 className="text-lg font-semibold">🧾 Verkäufe (aus Verbuchungen im Zeitraum)</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-700">
                   <th className="p-2 text-left">Datum</th>
                   <th className="p-2 text-left">Typ</th>
-                  <th className="p-2 text-left">Nutzer</th>
                   <th className="p-2 text-left">Getränk</th>
                   <th className="p-2 text-right">Menge</th>
-                  <th className="p-2 text-right">Summe (€)</th>
+                  <th className="p-2 text-right">Summe</th>
                 </tr>
               </thead>
               <tbody>
-                {paidConsumptions.map((c) => {
-                  const drink = c.drink_id ? drinkById.get(c.drink_id) : undefined
-                  const name = drink?.name || '—'
-                  const type =
-                    isTip(name) ? 'Trinkgeld'
-                    : isTopUp(name) ? 'Guthaben'
-                    : isFreeBeerRevenue(name) ? 'Freibier-Einnahme'
-                    : 'Verkauf'
-                  const sum = (c.unit_price_cents || 0) * (c.quantity || 0)
-                  return (
-                    <tr key={c.id} className="border-t border-gray-700">
-                      <td className="p-2">{new Date(c.created_at).toLocaleString('de-DE')}</td>
-                      <td className="p-2">{type}</td>
-                      <td className="p-2">—</td>
-                      <td className="p-2">{name}</td>
-                      <td className="p-2 text-right">{c.quantity}</td>
-                      <td className="p-2 text-right">{euro(sum)}</td>
-                    </tr>
-                  )
-                })}
+                {consInRange.length === 0 ? (
+                  <tr><td className="p-3 text-gray-400" colSpan={5}>Keine Verbuchungen im Zeitraum.</td></tr>
+                ) : (
+                  consInRange
+                    .filter((c) => (c.unit_price_cents || 0) >= 0)
+                    .map((c) => {
+                      const drink = c.drink_id ? drinkById.get(c.drink_id) : undefined
+                      const name = drink?.name || '—'
+                      const isCrate = c.source === 'crate'
+                      const type = isCrate ? 'Freibier (Kistenbereitstellung)' : (c.unit_price_cents || 0) > 0 ? 'Verkauf' : 'Freibier (Verbrauch)'
+                      const sum = (c.unit_price_cents || 0) * (c.quantity || 0)
+                      return (
+                        <tr key={c.id} className="border-t border-gray-700">
+                          <td className="p-2">{new Date(c.created_at).toLocaleString('de-DE')}</td>
+                          <td className="p-2">{type}</td>
+                          <td className="p-2">{name}</td>
+                          <td className="p-2 text-right">{c.quantity}</td>
+                          <td className="p-2 text-right">{sum > 0 ? euro(sum) : '—'}</td>
+                        </tr>
+                      )
+                    })
+                )}
               </tbody>
             </table>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-sm">
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Verkauf: <b>{euro(salesRevenueCents)}</b></div>
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Freibier-Einnahmen: <b>{euro(freeBeerRevenueCents)}</b></div>
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Trinkgeld: <b>{euro(tipsCents)}</b></div>
-            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Guthaben: <b>{euro(topUpsCents)}</b></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm pt-2">
+            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Bezahlte Verkäufe (Info): <b>{euro(paidSalesCents)}</b></div>
+            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Freibier-Einnahmen (Kiste): <b>{euro(freeBeerRevenueCents)}</b></div>
+            <div className="bg-gray-900/60 border border-gray-700 rounded p-3">Verifizierte Zahlungen: <b>{euro(totalPaymentsCents)}</b></div>
           </div>
-          <p className="text-xs text-gray-400">
-            Trennung via Getränkenamen (z. B. „💌 Trinkgeld“, „💶 Guthaben-Aufladung“, „Freibier-Kiste“). Bleibt vollständig in euren bestehenden Tabellen.
-          </p>
         </section>
 
         {/* Toasts */}
@@ -566,6 +558,7 @@ export default function InventoryRevenuePage() {
   )
 }
 
+/** ---------- Small UI helpers ---------- */
 function Stat({ title, value }: { title: string; value: string }) {
   return (
     <div className="bg-gray-800/70 border border-gray-700 rounded-xl p-4 text-center shadow">
