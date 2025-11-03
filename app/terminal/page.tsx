@@ -32,6 +32,17 @@ function debounce<F extends (...args: any[]) => void>(fn: F, delay = 300) {
 // Component
 // -----------------------------
 export default function TopTerminalPage() {
+    // 🔁 Automatischer Reload alle 10 Minuten (zum Testen 30 Sekunden)
+  useEffect(() => {
+    console.log('✅ Auto-Reload-Timer gestartet')
+    const timer = setInterval(() => {
+      console.log('🔄 Seite wird neu geladen...')
+      window.location.reload()
+    }, 30000) // 30 Sekunden = Test-Intervall; später 600000 = 10 Minuten
+
+    return () => clearInterval(timer)
+  }, [])
+
   // Ansicht / Login
   const [step, setStep] = useState<'pin' | 'overview'>('pin')
   const [pin, setPin] = useState('')
