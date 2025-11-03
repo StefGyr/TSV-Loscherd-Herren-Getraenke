@@ -144,7 +144,7 @@ export default function HomePage() {
     
   }, [])
   
-// 🕒 Sync-Fallback: prüft alle 30 Sekunden, ob neue Platzbelegung eingespielt wurde
+// 🔄 Sync-Fallback: prüft alle 10 Sekunden, ob neue Platzbelegung eingespielt wurde
 useEffect(() => {
   let lastTimestamp: string | null = null
 
@@ -156,9 +156,11 @@ useEffect(() => {
       .maybeSingle()
 
     if (error) {
-      console.error('Fehler beim Prüfen des Sync-Status:', error)
+      console.error('❌ sync_status SELECT-Fehler:', error)
       return
     }
+
+    console.log('ℹ️ sync_status Antwort:', data)
 
     const latest = data?.last_update
     if (!latest) return
@@ -177,11 +179,13 @@ useEffect(() => {
     }
   }
 
-  // alle 30 Sekunden prüfen
-  const interval = setInterval(checkSyncStatus, 30000)
+  // sofort prüfen + dann alle 10 Sekunden
+  checkSyncStatus()
+  const interval = setInterval(checkSyncStatus, 10000)
 
   return () => clearInterval(interval)
 }, [])
+
 
   
 
