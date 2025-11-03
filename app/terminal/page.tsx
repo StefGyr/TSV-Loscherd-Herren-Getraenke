@@ -38,7 +38,7 @@ export default function TopTerminalPage() {
     const timer = setInterval(() => {
       console.log('🔄 Seite wird neu geladen...')
       window.location.reload()
-    }, 30000) // 30 Sekunden = Test-Intervall; später 600000 = 10 Minuten
+    }, 600000) // 30 Sekunden = Test-Intervall; später 600000 = 10 Minuten
 
     return () => clearInterval(timer)
   }, [])
