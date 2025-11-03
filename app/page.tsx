@@ -143,6 +143,17 @@ export default function HomePage() {
   }
     
   }, [])
+
+  // 🔁 Automatischer Seitenreload alle 10 Minuten
+useEffect(() => {
+  const reloadInterval = setInterval(() => {
+    console.log('🔄 Automatischer Reload ausgelöst')
+    window.location.reload()
+  }, 30000) // 10 Minuten in Millisekunden
+
+  return () => clearInterval(reloadInterval)
+}, [])
+
   
 // 🔄 Sync-Fallback: prüft alle 10 Sekunden, ob neue Platzbelegung eingespielt wurde
 useEffect(() => {
