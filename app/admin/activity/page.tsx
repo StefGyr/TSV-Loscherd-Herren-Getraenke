@@ -25,6 +25,7 @@ export default function ActivityPage() {
   const [rankingMode, setRankingMode] = useState<'7days' | 'all'>('7days')
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [crateData, setCrateData] = useState<any[]>([])
 
   useEffect(() => {
     const load = async () => {
@@ -46,12 +47,14 @@ export default function ActivityPage() {
       const startOfWeek = new Date()
       startOfWeek.setDate(now.getDate() - 6)
 
-      // 🔹 Hauptabfrage mit korrekten Joins
+      // 🔹 Hauptabfrage erweitert mit source + unit_price_cents
       let query = supabase
         .from('consumptions')
         .select(`
           created_at,
           quantity,
+          source,
+          unit_price_cents,
           drinks!consumptions_drink_id_fkey(name),
           profiles!consumptions_user_id_fkey(first_name,last_name)
         `)
@@ -65,6 +68,11 @@ export default function ActivityPage() {
         return
       }
 
+      // --- Freibier-Kisten-Logik ---
+      const crateEntries =
+        data?.filter((c) => c.source === 'crate' && (c.unit_price_cents ?? 0) > 0) || []
+      setCrateData(crateEntries)
+
       /* --- Tagesstatistik --- */
       const todayStr = now.toISOString().slice(0, 10)
       const today = (data || []).filter((c) => c.created_at.startsWith(todayStr))
@@ -72,10 +80,7 @@ export default function ActivityPage() {
       const drinkMap: Record<string, number> = {}
       today.forEach((c) => {
         const drinkData = c.drinks as { name?: string } | { name?: string }[]
-const drinkName = Array.isArray(drinkData)
-  ? drinkData[0]?.name
-  : drinkData?.name
-
+        const drinkName = Array.isArray(drinkData) ? drinkData[0]?.name : drinkData?.name
         const n = drinkName || 'Unbekannt'
         drinkMap[n] = (drinkMap[n] || 0) + c.quantity
       })
@@ -110,10 +115,14 @@ const drinkName = Array.isArray(drinkData)
         const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
         const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
         const drinkName = drinkObj?.name || 'Unbekannt'
+
+        const isFree = c.unit_price_cents === 0 || c.source === 'free'
+        const label = isFree ? `${drinkName} (Freibier)` : drinkName
+
         grouped[date] = grouped[date] || {}
         grouped[date][userName] = grouped[date][userName] || {}
-        grouped[date][userName][drinkName] =
-          (grouped[date][userName][drinkName] || 0) + (c.quantity || 0)
+        grouped[date][userName][label] =
+          (grouped[date][userName][label] || 0) + (c.quantity || 0)
       }
 
       /* --- Bestenliste --- */
@@ -298,6 +307,27 @@ const drinkName = Array.isArray(drinkData)
                   })
               )}
             </section>
+
+            {/* --- Bereitgestellte Freibier-Kisten --- */}
+            {crateData.length > 0 && (
+              <section className="bg-gray-800/70 p-5 rounded border border-gray-700 shadow">
+                <h2 className="text-lg font-semibold mb-3">🍾 Bereitgestellte Freibier-Kisten</h2>
+                <ul className="space-y-1 text-sm">
+                  {crateData.map((c, i) => {
+                    const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
+                    const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
+                    const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim()
+                    const drink = drinkObj?.name || 'Unbekannt'
+                    return (
+                      <li key={i} className="flex justify-between border-b border-gray-800 py-1">
+                        <span>{name}</span>
+                        <span className="text-green-400">hat eine Kiste {drink} bereitgestellt</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )}
           </>
         )}
       </div>
