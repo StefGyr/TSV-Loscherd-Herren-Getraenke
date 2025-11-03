@@ -143,8 +143,12 @@ if (terminalCrates.length > 0) {
 }
 
 if (appCrates.length > 0) {
-  const qty = appCrates.reduce((sum, b) => sum + (b.quantity || 0), 0)
-  const total = appCrates.reduce((sum, b) => sum + (b.unit_price_cents || 0) * (b.quantity || 0), 0)
+  // Jede Bereitstellung zählt als 1 Kiste – auch wenn quantity = 0
+  const qty = appCrates.length
+  const total = appCrates.reduce(
+    (sum, b) => sum + (b.unit_price_cents || 0), // unit_price_cents = Kistenpreis
+    0
+  )
   rows['🎁 Bereitgestellte Kisten (App)'] = { qty, sumCents: total }
 }
 // 🔹 Verbrauchte Freigetränke zählen
@@ -403,21 +407,35 @@ if (freeDrinks.length > 0) {
           <ul className="space-y-2">
             {filteredBookings.length === 0 && <li className="text-gray-400">Keine Buchungen im gewählten Zeitraum.</li>}
             {filteredBookings.map((b: any, i: number) => (
-              <li
-                key={i}
-                className="p-3 rounded-2xl border bg-gray-800/70 border-gray-700/70 flex justify-between items-center"
-              >
-                <div>
-                  <span className="font-medium">{b.drinks?.name || 'Unbekannt'}</span> × {b.quantity}{' '}
-                  {b.source === 'crate' && <span className="text-green-400 ml-1">🎉 Kiste / Freibier</span>}
-                  {b.via_terminal && <span className="text-blue-400 ml-2 text-sm">🖥️ Terminal</span>}
-                  <div className="text-xs text-gray-400">{formatDateTime(b.created_at)}</div>
-                </div>
-                <div className="text-sm text-gray-300 text-right">
-                  {b.unit_price_cents === 0 ? 'Freibier' : ((b.unit_price_cents * b.quantity) / 100).toFixed(2) + ' €'}
-                </div>
-              </li>
-            ))}
+  <li
+    key={i}
+    className="p-3 rounded-2xl border bg-gray-800/70 border-gray-700/70 flex justify-between items-center"
+  >
+    <div>
+      <span className="font-medium">{b.drinks?.name || 'Unbekannt'}</span>
+
+      {/* 🔹 Bei Kisten andere Anzeige */}
+      {b.source === 'crate' ? (
+        <span className="text-green-400 ml-1"> • 🎉 Kiste / Freibier</span>
+      ) : (
+        <> × {b.quantity}</>
+      )}
+
+      {b.via_terminal && <span className="text-blue-400 ml-2 text-sm">🖥️ Terminal</span>}
+
+      <div className="text-xs text-gray-400">{formatDateTime(b.created_at)}</div>
+    </div>
+
+    <div className="text-sm text-gray-300 text-right">
+      {b.source === 'crate'
+        ? `${(b.unit_price_cents / 100).toFixed(2)} €`
+        : b.unit_price_cents === 0
+        ? 'Freibier'
+        : `${((b.unit_price_cents * b.quantity) / 100).toFixed(2)} €`}
+    </div>
+  </li>
+))}
+
           </ul>
         </section>
 
