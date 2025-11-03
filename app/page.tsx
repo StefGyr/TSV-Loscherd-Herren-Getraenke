@@ -143,6 +143,46 @@ export default function HomePage() {
   }
     
   }, [])
+  // 🕒 Fallback: prüft alle 30 Sekunden, ob sich die Platzbelegung geändert hat
+useEffect(() => {
+  let lastTimestamp: string | null = null
+
+  const checkPlatzbelegung = async () => {
+    const { data, error } = await supabase
+      .from('platzbelegung')
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Fehler beim Prüfen der Platzbelegung:', error)
+      return
+    }
+
+    const latest = data?.updated_at
+    if (!latest) return
+
+    // beim ersten Aufruf merken
+    if (!lastTimestamp) {
+      lastTimestamp = latest
+      console.log('📡 Initialer Zeitstempel:', lastTimestamp)
+      return
+    }
+
+    // wenn sich updated_at ändert → Seite neu laden
+    if (lastTimestamp !== latest) {
+      console.log('🔁 Änderung erkannt (updated_at hat sich geändert) → Seite neu laden...')
+      window.location.reload()
+    }
+  }
+
+  // alle 30 Sekunden prüfen
+  const interval = setInterval(checkPlatzbelegung, 30000)
+
+  return () => clearInterval(interval)
+}, [])
+
   // 🔁 Echtzeit-Aktualisierung der Platzbelegung (stabile Variante)
 useEffect(() => {
   // Sicherstellen, dass Realtime aktiv ist
