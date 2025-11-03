@@ -143,78 +143,47 @@ export default function HomePage() {
   }
     
   }, [])
-  // 🕒 Fallback: prüft alle 30 Sekunden, ob sich die Platzbelegung geändert hat
+  
+// 🕒 Sync-Fallback: prüft alle 30 Sekunden, ob neue Platzbelegung eingespielt wurde
 useEffect(() => {
   let lastTimestamp: string | null = null
 
-  const checkPlatzbelegung = async () => {
+  const checkSyncStatus = async () => {
     const { data, error } = await supabase
-      .from('platzbelegung')
-      .select('updated_at')
-      .order('updated_at', { ascending: false })
-      .limit(1)
+      .from('sync_status')
+      .select('last_update')
+      .eq('key', 'platzbelegung')
       .maybeSingle()
 
     if (error) {
-      console.error('Fehler beim Prüfen der Platzbelegung:', error)
+      console.error('Fehler beim Prüfen des Sync-Status:', error)
       return
     }
 
-    const latest = data?.updated_at
+    const latest = data?.last_update
     if (!latest) return
 
-    // beim ersten Aufruf merken
+    // ersten Zeitstempel merken
     if (!lastTimestamp) {
       lastTimestamp = latest
-      console.log('📡 Initialer Zeitstempel:', lastTimestamp)
+      console.log('📡 Initialer Sync-Timestamp:', lastTimestamp)
       return
     }
 
-    // wenn sich updated_at ändert → Seite neu laden
+    // wenn sich last_update ändert → Seite neu laden
     if (new Date(latest).getTime() !== new Date(lastTimestamp).getTime()) {
-  console.log('🔁 Änderung erkannt (updated_at hat sich geändert) → Seite neu laden...')
-  window.location.reload()
-}
-
+      console.log('🔁 Neue Platzbelegung erkannt → Seite wird neu geladen...')
+      window.location.reload()
+    }
   }
 
   // alle 30 Sekunden prüfen
-  const interval = setInterval(checkPlatzbelegung, 30000)
+  const interval = setInterval(checkSyncStatus, 30000)
 
   return () => clearInterval(interval)
 }, [])
 
-  // 🔁 Echtzeit-Aktualisierung der Platzbelegung (stabile Variante)
-useEffect(() => {
-  // Sicherstellen, dass Realtime aktiv ist
-  const channel = supabase
-    .channel('public:platzbelegung')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'platzbelegung',
-      },
-      (payload) => {
-        console.log('📡 Realtime Event empfangen:', payload)
-        window.location.reload()
-      }
-    )
-    .subscribe((status) => {
-      console.log('📶 Channel-Status:', status)
-    })
-
-  // Heartbeat fix: Supabase trennt nach Leerlauf manchmal Kanäle
-  const ping = setInterval(() => {
-    supabase.channel('heartbeat')
-  }, 20000)
-
-  return () => {
-    clearInterval(ping)
-    supabase.removeChannel(channel)
-  }
-}, [])
+  
 
 
 
