@@ -60,12 +60,19 @@ export default function PlatzbelegungAdmin() {
     setUploading(false)
 
     if (insertError) {
-      console.error('Fehler beim Einfügen:', insertError)
-      setMessage(`❌ Fehler beim Speichern: ${insertError.message}`)
-    } else {
-      setMessage(`✅ ${mapped.length} Einträge erfolgreich importiert!`)
-      setRows([]) // CSV-Tabelle zurücksetzen
-    }
+  console.error('Fehler beim Einfügen:', insertError)
+  setMessage(`❌ Fehler beim Speichern: ${insertError.message}`)
+} else {
+  // 🕒 updated_at erzwingen, damit Realtime/Fallback anspringt
+  await supabase
+    .from('platzbelegung')
+    .update({ updated_at: new Date().toISOString() })
+    .neq('id', 0)
+
+  setMessage(`✅ ${mapped.length} Einträge erfolgreich importiert!`)
+  setRows([]) // CSV-Tabelle zurücksetzen
+}
+
   }
 
   return (
