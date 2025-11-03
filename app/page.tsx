@@ -13,6 +13,20 @@ const euro = (c: number) => `${(c / 100).toFixed(2)} €`
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('de-DE')
 
 export default function HomePage() {
+    // 🔁 Test-Autoreload alle 30 Sekunden
+  useEffect(() => {
+    console.log('✅ useEffect aktiv – Timer wird gesetzt')
+    const reloadInterval = setInterval(() => {
+      console.log('🔄 Automatischer Reload ausgelöst')
+      window.location.reload()
+    }, 30000) // 30 Sekunden zum Testen
+
+    return () => {
+      console.log('🧹 Timer aufgeräumt')
+      clearInterval(reloadInterval)
+    }
+  }, [])
+
   const [drinks, setDrinks] = useState<any[]>([])
   const [selectedDrink, setSelectedDrink] = useState<any | null>(null)
   const [quantity, setQuantity] = useState(1)
