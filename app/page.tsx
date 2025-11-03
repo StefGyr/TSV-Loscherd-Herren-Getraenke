@@ -144,61 +144,17 @@ export default function HomePage() {
     
   }, [])
 
-  // 🔁 Automatischer Seitenreload alle 10 Minuten
+// 🔁 Automatischer Seitenreload alle 10 Minuten (stabil)
 useEffect(() => {
-  const reloadInterval = setInterval(() => {
-    console.log('🔄 Automatischer Reload ausgelöst')
+  const TEN_MINUTES = 30 * 1000 // 30 Sekunden Testintervall
+
+  const reloadTimer = setInterval(() => {
+    console.log('🔄 Automatischer Reload nach 10 Minuten')
     window.location.reload()
-  }, 30000) // 10 Minuten in Millisekunden
+  }, TEN_MINUTES)
 
-  return () => clearInterval(reloadInterval)
+  return () => clearInterval(reloadTimer)
 }, [])
-
-  
-// 🔄 Sync-Fallback: prüft alle 10 Sekunden, ob neue Platzbelegung eingespielt wurde
-useEffect(() => {
-  let lastTimestamp: string | null = null
-
-  const checkSyncStatus = async () => {
-    const { data, error } = await supabase
-      .from('sync_status')
-      .select('last_update')
-      .eq('key', 'platzbelegung')
-      .maybeSingle()
-
-    if (error) {
-      console.error('❌ sync_status SELECT-Fehler:', error)
-      return
-    }
-
-    console.log('ℹ️ sync_status Antwort:', data)
-
-    const latest = data?.last_update
-    if (!latest) return
-
-    // ersten Zeitstempel merken
-    if (!lastTimestamp) {
-      lastTimestamp = latest
-      console.log('📡 Initialer Sync-Timestamp:', lastTimestamp)
-      return
-    }
-
-    // wenn sich last_update ändert → Seite neu laden
-    if (new Date(latest).getTime() !== new Date(lastTimestamp).getTime()) {
-      console.log('🔁 Neue Platzbelegung erkannt → Seite wird neu geladen...')
-      window.location.reload()
-    }
-  }
-
-  // sofort prüfen + dann alle 10 Sekunden
-  checkSyncStatus()
-  const interval = setInterval(checkSyncStatus, 10000)
-
-  return () => clearInterval(interval)
-}, [])
-
-
-  
 
 
 
