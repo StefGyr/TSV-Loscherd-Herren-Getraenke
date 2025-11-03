@@ -171,10 +171,11 @@ useEffect(() => {
     }
 
     // wenn sich updated_at ändert → Seite neu laden
-    if (lastTimestamp !== latest) {
-      console.log('🔁 Änderung erkannt (updated_at hat sich geändert) → Seite neu laden...')
-      window.location.reload()
-    }
+    if (new Date(latest).getTime() !== new Date(lastTimestamp).getTime()) {
+  console.log('🔁 Änderung erkannt (updated_at hat sich geändert) → Seite neu laden...')
+  window.location.reload()
+}
+
   }
 
   // alle 30 Sekunden prüfen
