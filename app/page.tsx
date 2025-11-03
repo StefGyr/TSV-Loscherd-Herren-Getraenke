@@ -240,17 +240,38 @@ export default function HomePage() {
 
   // ---------------- Freigetränke bereitstellen ----------------
   const handleProvideFreeDrinks = async () => {
-    const { data: auth } = await supabase.auth.getUser()
-    const user = auth?.user
-    if (!user) return
+  const { data: auth } = await supabase.auth.getUser()
+  const user = auth?.user
+  if (!user) return
+
+  try {
+    // 🔹 Freibier-Pool + Kontostand aktualisieren
     await supabase.rpc('terminal_decrement_free_pool', { _id: FREE_POOL_ID, _used: -BOTTLES_PER_CRATE })
     setFreePool((p) => p + BOTTLES_PER_CRATE)
     await supabase.rpc('increment_balance', { user_id_input: user.id, amount_input: bierPrice })
     setBalance((b) => b + bierPrice)
-    addToast('🎉 20 Freigetränke bereitgestellt!')
+
+    // 🔹 Konsum-Eintrag für Aktivitätsseite hinzufügen
+    const bierDrink = drinks.find((d: any) => d.name.toLowerCase() === 'bier')
+    await supabase.from('consumptions').insert({
+      user_id: user.id,
+      drink_id: bierDrink?.id ?? null,
+      quantity: 1, // 1 Kiste
+      unit_price_cents: bierPrice,
+      source: 'crate', // wichtig für Admin-Logik
+      created_at: new Date().toISOString(),
+    })
+
+    // 🔹 Nutzerfeedback & Refresh
+    addToast('🍾 20 Freigetränke bereitgestellt!')
     setFreePopup(false)
     await Promise.all([refreshBookings(), loadMyWeekStats()])
+  } catch (err) {
+    console.error('Fehler bei handleProvideFreeDrinks:', err)
+    addToast('❌ Bereitstellung fehlgeschlagen', 'error')
   }
+}
+
 
   const totalPrice = useMemo(() => (selectedDrink ? selectedDrink.price_cents * quantity : 0), [selectedDrink, quantity])
 
