@@ -29,7 +29,7 @@ export async function POST(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'TSV Getränke <no-reply@your-domain.de>',
+        from: 'TSV Getränke <no-reply@tsv-lonnerstadt.de>',
         to: toList,
         subject,
         text,
