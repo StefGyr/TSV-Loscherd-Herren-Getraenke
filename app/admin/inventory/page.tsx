@@ -103,7 +103,12 @@ export default function InventoryRevenuePage() {
     [consInRange]
   )
 
-  const costCents = useMemo(()=>purchInRange.reduce((s,p)=>s+(p.crate_price_cents||0),0),[purchInRange])
+  // Einkaufskosten = Preis pro Kiste × Anzahl Kisten
+const costCents = useMemo(
+  () => purchInRange.reduce((s, p) => s + (p.crate_price_cents || 0) * (p.quantity || 0), 0),
+  [purchInRange]
+)
+
   const profitCents = useMemo(()=>totalPaymentsCents - costCents,[totalPaymentsCents,costCents])
   const openPostenCents = useMemo(()=>profiles.reduce((s,p)=>s+(p.open_balance_cents||0),0),[profiles])
 
@@ -254,8 +259,21 @@ export default function InventoryRevenuePage() {
         x.unit_price_cents!=null ? (x.unit_price_cents/100).toFixed(2) : ''
       ])
 
-    pushSection('PURCHASES',['id','created_at','drink_id','quantity_kisten','crate_price_eur'],
-      pu.data||[], (x)=>[x.id,x.created_at,x.drink_id,x.quantity,(x.crate_price_cents/100).toFixed(2)])
+    // ✅ EK-Fix: Gesamtpreis = crate_price_cents × quantity
+pushSection(
+  'PURCHASES',
+  ['id','created_at','drink_id','quantity_kisten','crate_price_eur','gesamtpreis_eur'],
+  pu.data || [],
+  (x) => [
+    x.id,
+    x.created_at,
+    x.drink_id,
+    x.quantity,
+    (x.crate_price_cents / 100).toFixed(2), // Preis pro Kiste
+    ((x.quantity * x.crate_price_cents) / 100).toFixed(2) // Gesamtpreis
+  ]
+)
+
 
     pushSection('PAYMENTS',['id','created_at','user','method','amount_eur','verified'],
       pa.data||[], (x)=>[
