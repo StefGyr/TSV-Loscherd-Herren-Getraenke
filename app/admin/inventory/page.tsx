@@ -28,7 +28,7 @@ const startOfWeek = ()=>{const d=startOfToday(); const day=d.getDay()||7; d.setD
 const startOfMonth = ()=>{const d=startOfToday(); d.setDate(1); return d}
 
 export default function InventoryRevenuePage() {
-  // ===== state =====
+  // ==== State ====
   const [drinks,setDrinks]=useState<Drink[]>([])
   const [consumptions,setConsumptions]=useState<Consumption[]>([])
   const [purchases,setPurchases]=useState<Purchase[]>([])
@@ -37,29 +37,15 @@ export default function InventoryRevenuePage() {
   const [thresholds,setThresholds]=useState<Threshold[]>([])
   const [loading,setLoading]=useState(true)
   const [toasts,setToasts]=useState<{id:number;text:string;type?:'success'|'error'}[]>([])
+
   // 🎁 Globaler Freibier-Pool (alle Getränke gemeinsam)
-const [freePool, setFreePool] = useState<number>(0)
-
-// Lädt den globalen Freibestand (aus Tabelle "free_pool")
-useEffect(() => {
-  const loadFreePool = async () => {
-    const { data, error } = await supabase
-      .from('free_pool')
-      .select('quantity_remaining')
-      .eq('id', 1)
-      .maybeSingle()
-    if (!error && data) setFreePool(data.quantity_remaining || 0)
-  }
-
-  loadFreePool()
-}, [])
-
+  const [freePool, setFreePool] = useState<number>(0)
 
   const addToast=(text:string,type:'success'|'error'='success')=>{
     const id=Date.now(); setToasts(p=>[...p,{id,text,type}]); setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3200)
   }
 
-  // ===== filter =====
+  // ==== Filter ====
   const [rangePreset,setRangePreset]=useState<'today'|'week'|'month'|'custom'>('month')
   const [from,setFrom]=useState(()=>startOfMonth().toISOString().slice(0,10))
   const [to,setTo]=useState(()=>new Date().toISOString().slice(0,10))
@@ -70,7 +56,7 @@ useEffect(() => {
     else if(rangePreset==='month'){ setFrom(startOfMonth().toISOString().slice(0,10)); setTo(new Date().toISOString().slice(0,10)) }
   },[rangePreset])
 
-  // ===== load =====
+  // ==== Load ====
   useEffect(()=>{
     const load=async()=>{
       setLoading(true)
@@ -104,32 +90,45 @@ useEffect(() => {
     load()
   },[])
 
-  // ===== helpers =====
+  // Freibier-Pool einmalig laden
+  useEffect(() => {
+    const loadFreePool = async () => {
+      const { data, error } = await supabase
+        .from('free_pool')
+        .select('quantity_remaining')
+        .eq('id', 1)
+        .maybeSingle()
+      if (!error && data) setFreePool(data.quantity_remaining || 0)
+    }
+    loadFreePool()
+  }, [])
+
+  // ==== Helpers ====
   const inRange=(iso:string)=>{const d=new Date(iso); const f=new Date(from+'T00:00:00'); const t=new Date(to+'T23:59:59'); return d>=f && d<=t}
   const consInRange=useMemo(()=>consumptions.filter(c=>inRange(c.created_at)),[consumptions,from,to])
   const purchInRange=useMemo(()=>purchases.filter(p=>inRange(p.created_at)),[purchases,from,to])
   const paymentsInRange=useMemo(()=>payments.filter(p=>inRange(p.created_at)),[payments,from,to])
 
-  // ===== KPIs =====
+  // ==== KPIs ====
   const totalPaymentsCents = useMemo(()=>paymentsInRange.reduce((s,p)=>s+(p.amount_cents||0),0),[paymentsInRange])
 
-  // exakt wie Profil-Logik: App-Kisten = source='crate' && !via_terminal; Summe = unit_price_cents
+  // App-Kisten (Freibier-Einnahmen) wie Profil
   const freeBeerAppCents = useMemo(
     ()=>consInRange.filter(c=>c.source==='crate' && !c.via_terminal)
                    .reduce((s,c)=>s+(c.unit_price_cents||0),0),
     [consInRange]
   )
 
-  // Einkaufskosten = Preis pro Kiste × Anzahl Kisten
-const costCents = useMemo(
-  () => purchInRange.reduce((s, p) => s + (p.crate_price_cents || 0) * (p.quantity || 0), 0),
-  [purchInRange]
-)
+  // EK = Preis/Kiste × Kistenmenge (auch Flaschen/20)
+  const costCents = useMemo(
+    () => purchInRange.reduce((s, p) => s + (p.crate_price_cents || 0) * (p.quantity || 0), 0),
+    [purchInRange]
+  )
 
   const profitCents = useMemo(()=>totalPaymentsCents - costCents,[totalPaymentsCents,costCents])
   const openPostenCents = useMemo(()=>profiles.reduce((s,p)=>s+(p.open_balance_cents||0),0),[profiles])
 
-  // ===== inventory (bottles) =====
+  // ==== Inventory (bottles) ====
   const inventory = useMemo(()=>{
     const bought = new Map<number,number>()
     purchases.forEach(p=>{
@@ -145,14 +144,14 @@ const costCents = useMemo(
     })
   },[drinks,purchases,consumptions])
 
-  // ===== thresholds map =====
+  // ==== Thresholds Map ====
   const thresholdByDrink = useMemo(()=>{
     const m=new Map<number,Threshold>()
     thresholds.forEach(t=>m.set(t.drink_id,t))
     return m
   },[thresholds])
 
-  // ===== Auto Low-Stock mail (on render/inventory change) =====
+  // ==== Auto Low-Stock Mail ====
   useEffect(()=>{
     const notify = async ()=>{
       const below = inventory.filter(row=>{
@@ -161,15 +160,13 @@ const costCents = useMemo(
       })
       if(below.length===0) return
 
-      // Entdoppeln via low_stock_events (einmal pro Tag/Drink)
       const today = new Date().toISOString().slice(0,10)
       for (const row of below) {
         const th = thresholdByDrink.get(row.id)
         const emails = (th?.notify_email && th.notify_email.trim().length>0)
           ? th.notify_email
-          : 'bennybecool@gmx.de,geyer1992@hotmail.de' // Default wie gewünscht
+          : 'bennybecool@gmx.de,geyer1992@hotmail.de'
 
-        // check: schon gemeldet?
         const { data:already } = await supabase
           .from('low_stock_events')
           .select('id')
@@ -179,12 +176,10 @@ const costCents = useMemo(
 
         if (already && already.length>0) continue
 
-        // anlegen event (damit pro Tag nur einmal pro Drink)
         await supabase.from('low_stock_events').insert({
           drink_id: row.id, event_date: today, stock_bottles: row.stock
         })
 
-        // Mail feuern (Next.js API-Route)
         await fetch('/api/notify-low-stock', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -200,17 +195,16 @@ const costCents = useMemo(
     notify().catch(()=>{})
   },[inventory,thresholdByDrink])
 
-  // ===== Actions: purchase & adjust & EK & save thresholds =====
+  // ==== Actions ====
   const [purchaseForm,setPurchaseForm]=useState({drink_id:'',bottles:'',total_price_eur:''})
   const saveBottlePurchase=async()=>{
     const drink_id=Number(purchaseForm.drink_id)
     const bottles=Number(purchaseForm.bottles)
     const totalPriceCents=Math.round(Number(purchaseForm.total_price_eur)*100)
     if (!drink_id || !bottles) {
-  addToast('Bitte Getränk und Flaschenanzahl angeben', 'error')
-  return
-}
-
+      addToast('Bitte Getränk und Flaschenanzahl angeben', 'error')
+      return
+    }
     const crateQty=bottles/BOTTLES_PER_CRATE
     const {error}=await supabase.from('purchases').insert({ drink_id, quantity: crateQty, crate_price_cents: totalPriceCents })
     if(error){ addToast('Speichern fehlgeschlagen (prüfe Datentyp von purchases.quantity)','error'); return }
@@ -236,7 +230,6 @@ const costCents = useMemo(
     if(error) addToast('EK/Kiste Speichern fehlgeschlagen','error'); else addToast('EK/Kiste aktualisiert')
   }
 
-  // save threshold/email
   const saveThreshold = async (drink_id:number, threshold_bottles:number, notify_email:string)=>{
     const existing = thresholds.find(t=>t.drink_id===drink_id)
     let q
@@ -251,7 +244,6 @@ const costCents = useMemo(
     }
   }
 
-  // ===== CSV Export (alle relevanten Tabellen) =====
   const exportAllAsCSV = async ()=>{
     addToast('Erstelle CSV…')
     const [dr,co,pu,pa,pr] = await Promise.all([
@@ -280,21 +272,20 @@ const costCents = useMemo(
         x.unit_price_cents!=null ? (x.unit_price_cents/100).toFixed(2) : ''
       ])
 
-    // ✅ EK-Fix: Gesamtpreis = crate_price_cents × quantity
-pushSection(
-  'PURCHASES',
-  ['id','created_at','drink_id','quantity_kisten','crate_price_eur','gesamtpreis_eur'],
-  pu.data || [],
-  (x) => [
-    x.id,
-    x.created_at,
-    x.drink_id,
-    x.quantity,
-    (x.crate_price_cents / 100).toFixed(2), // Preis pro Kiste
-    ((x.quantity * x.crate_price_cents) / 100).toFixed(2) // Gesamtpreis
-  ]
-)
-
+    // EK-Fix: Gesamtpreis = crate_price_cents × quantity
+    pushSection(
+      'PURCHASES',
+      ['id','created_at','drink_id','quantity_kisten','crate_price_eur','gesamtpreis_eur'],
+      pu.data || [],
+      (x) => [
+        x.id,
+        x.created_at,
+        x.drink_id,
+        x.quantity,
+        (x.crate_price_cents / 100).toFixed(2),
+        ((x.quantity * x.crate_price_cents) / 100).toFixed(2)
+      ]
+    )
 
     pushSection('PAYMENTS',['id','created_at','user','method','amount_eur','verified'],
       pa.data||[], (x)=>[
@@ -318,106 +309,61 @@ pushSection(
 
   if(loading) return <div className="p-6 text-center text-white">⏳ Lade Daten…</div>
 
+  // ==== UI ====
   return (
     <>
       <TopNav />
       <AdminNav />
 
       <div className="pt-20 max-w-7xl mx-auto p-4 text-white space-y-8">
-        {/* Header + Filter + Export */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-          <h1 className="text-2xl font-bold">📦 Bestand & 💶 Einnahmen</h1>
-          <div className="flex items-center gap-2">
-            <div className="bg-gray-800/70 border border-gray-700 rounded-xl p-3 flex items-center gap-2">
-              <select className="bg-gray-900 border border-gray-700 rounded p-2" value={rangePreset} onChange={e=>setRangePreset(e.target.value as any)}>
-                <option value="today">Heute</option>
-                <option value="week">Diese Woche</option>
-                <option value="month">Dieser Monat</option>
-                <option value="custom">Benutzerdefiniert</option>
-              </select>
-              <input type="date" className="bg-gray-900 border border-gray-700 rounded p-2" value={from} onChange={e=>setFrom(e.target.value)} disabled={rangePreset!=='custom'} />
-              <span className="text-gray-400 text-sm">bis</span>
-              <input type="date" className="bg-gray-900 border border-gray-700 rounded p-2" value={to} onChange={e=>setTo(e.target.value)} disabled={rangePreset!=='custom'} />
+
+        {/* Sticky Kopfzeile */}
+        <div className="sticky top-12 z-20 bg-neutral-950/70 backdrop-blur border border-neutral-800 rounded-xl p-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <h1 className="text-xl md:text-2xl font-bold">📦 Bestand & 💶 Einnahmen</h1>
+            <div className="flex items-center gap-2">
+              <div className="bg-gray-800/70 border border-gray-700 rounded-xl p-2 flex items-center gap-2">
+                <select className="bg-gray-900 border border-gray-700 rounded p-2" value={rangePreset} onChange={e=>setRangePreset(e.target.value as any)}>
+                  <option value="today">Heute</option>
+                  <option value="week">Diese Woche</option>
+                  <option value="month">Dieser Monat</option>
+                  <option value="custom">Benutzerdefiniert</option>
+                </select>
+                <input type="date" className="bg-gray-900 border border-gray-700 rounded p-2" value={from} onChange={e=>setFrom(e.target.value)} disabled={rangePreset!=='custom'} />
+                <span className="text-gray-400 text-sm">bis</span>
+                <input type="date" className="bg-gray-900 border border-gray-700 rounded p-2" value={to} onChange={e=>setTo(e.target.value)} disabled={rangePreset!=='custom'} />
+              </div>
+              <button onClick={exportAllAsCSV} className="bg-teal-700 hover:bg-teal-800 rounded px-3 py-2 text-sm font-medium">
+                📤 CSV-Export
+              </button>
             </div>
-            <button onClick={exportAllAsCSV} className="bg-teal-700 hover:bg-teal-800 rounded px-3 py-2 text-sm font-medium">
-              📤 CSV-Export
-            </button>
+          </div>
+
+          {/* Schnell-Navigation */}
+          <div className="flex flex-wrap gap-2 text-xs mt-2 text-gray-300">
+            <a href="#kpis" className="hover:underline">KPIs</a> •
+            <a href="#inventory" className="hover:underline">Bestand</a> •
+            <a href="#actions" className="hover:underline">Bestand pflegen</a> •
+            <a href="#freepool" className="hover:underline">Freibier-Pool</a> •
+            <a href="#payments" className="hover:underline">Zahlungen</a> •
+            <a href="#appcrates" className="hover:underline">App-Kisten</a>
           </div>
         </div>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-          <Stat title="Gesamteinnahmen (verifiziert)" value={euro(totalPaymentsCents)} />
-          <Stat title="Freibier-Einnahmen (App-Kisten)" value={euro(freeBeerAppCents)} />
-          <Stat title="Kosten (EK)" value={euro(costCents)} />
-          <Stat title="Gewinn" value={euro(profitCents)} />
-          <Stat title="Offene Posten" value={euro(openPostenCents)} />
-        </div>
-
-        {/* 🎁 Globaler Freibier-Pool */}
-<section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-  <h2 className="text-lg font-semibold">🎁 Globaler Freibier-Pool</h2>
-  <p className="text-sm text-gray-300">
-    Aktueller Freibierbestand: <b>{freePool}</b> Flaschen
-  </p>
-
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-    <input
-      type="number"
-      id="adjustFreePoolInput"
-      className="bg-gray-900 border border-gray-700 rounded p-2"
-      placeholder="Anzahl (z. B. +20 oder -10)"
-    />
-    <input
-      type="text"
-      id="adjustFreePoolNote"
-      className="bg-gray-900 border border-gray-700 rounded p-2"
-      placeholder="Kommentar (optional)"
-    />
-    <button
-      className="bg-pink-700 hover:bg-pink-800 rounded p-2 font-medium"
-      onClick={async () => {
-        const inputEl = document.getElementById('adjustFreePoolInput') as HTMLInputElement
-        const noteEl = document.getElementById('adjustFreePoolNote') as HTMLInputElement
-        const delta = Number(inputEl.value || 0)
-        const note = noteEl.value || ''
-
-        if (!delta) {
-          addToast('Bitte eine Anzahl eingeben', 'error')
-          return
-        }
-
-        const { error } = await supabase.rpc('terminal_decrement_free_pool', { _id: 1, _used: -delta })
-        if (error) {
-          console.error(error)
-          addToast('Fehler beim Anpassen des Freibierpools', 'error')
-        } else {
-          setFreePool((prev) => Math.max(0, prev + delta))
-          addToast('Freibierbestand angepasst ✅')
-          inputEl.value = ''
-          noteEl.value = ''
-        }
-
-        // Optional: Log in separate Tabelle schreiben (wenn vorhanden)
-        await supabase.from('free_pool_log').insert({
-          change: delta,
-          note: note,
-          created_at: new Date().toISOString(),
-        })
-      }}
-    >
-      Freibestand anpassen
-    </button>
-  </div>
-
-  <p className="text-xs text-gray-400">
-    Positiver Wert = Freibier hinzufügen, negativer Wert = Freibier abziehen.
-  </p>
-</section>
-
+        <section id="kpis">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <Stat title="Einnahmen (verifiziert)" value={euro(totalPaymentsCents)} />
+            <Stat title="Freibier-Einnahmen (App-Kisten)" value={euro(freeBeerAppCents)} />
+            <Stat title="Kosten (EK)" value={euro(costCents)} />
+            <Stat title="Gewinn" value={euro(profitCents)} />
+            <Stat title="Offene Posten" value={euro(openPostenCents)} />
+            <Stat title="Freibier-Pool (Fl.)" value={String(freePool)} />
+          </div>
+        </section>
 
         {/* Bestand */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-4">
+        <section id="inventory" className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-4">
           <h2 className="text-lg font-semibold">Getränkebestand (Flaschen)</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
@@ -435,140 +381,133 @@ pushSection(
                 </tr>
               </thead>
               <tbody>
-  {inventory.map((row) => {
-    const ekCrate = drinks.find((d) => d.id === row.id)?.ek_crate_price_cents
-    const th = thresholdByDrink.get(row.id)
-    const low = th && row.stock < th.threshold_bottles
-    const currentThreshold = th?.threshold_bottles ?? 20
-    const currentEmails = th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de'
+                {inventory.map((row) => {
+                  const ekCrate = drinks.find((d) => d.id === row.id)?.ek_crate_price_cents
+                  const th = thresholdByDrink.get(row.id)
+                  const low = th && row.stock < th.threshold_bottles
+                  const currentThreshold = th?.threshold_bottles ?? 20
+                  const currentEmails = th?.notify_email ?? 'bennybecool@gmx.de,geyer1992@hotmail.de'
 
-    // 🔹 Funktion zum Test-Mail-Versand
-    const sendTestMail = async () => {
-      try {
-        const res = await fetch('/api/notify-low-stock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            drinkName: row.name,
-            stock: row.stock,
-            threshold: currentThreshold,
-            recipients: currentEmails,
-            test: true,
-          }),
-        })
-        if (res.ok) {
-          addToast(`Test-Mail für ${row.name} gesendet ✅`)
-        } else {
-          const err = await res.text()
-          addToast(`Fehler beim Test-Mail: ${err}`, 'error')
-        }
-      } catch (err: any) {
-        addToast(`Test-Mail fehlgeschlagen: ${String(err)}`, 'error')
-      }
-    }
+                  const sendTestMail = async () => {
+                    try {
+                      const res = await fetch('/api/notify-low-stock', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          drinkName: row.name,
+                          stock: row.stock,
+                          threshold: currentThreshold,
+                          recipients: currentEmails,
+                          test: true,
+                        }),
+                      })
+                      if (res.ok) addToast(`Test-Mail für ${row.name} gesendet ✅`)
+                      else addToast(`Fehler beim Test-Mail: ${await res.text()}`, 'error')
+                    } catch (err:any) { addToast(`Test-Mail fehlgeschlagen: ${String(err)}`, 'error') }
+                  }
 
-    return (
-      <tr key={row.id} className={`border-t border-gray-700 ${low ? 'bg-red-950/30' : ''}`}>
-        <td className="p-2">{row.name}</td>
-        <td className={`p-2 text-right ${low ? 'text-red-400 font-semibold' : ''}`}>{row.stock}</td>
-        <td className="p-2 text-right">{row.sold}</td>
-        <td className="p-2 text-right">{ekCrate ? (ekCrate / 100).toFixed(2) : ''}</td>
-        <td className="p-2 text-right">{row.ekBottle != null ? row.ekBottle.toFixed(2) : ''}</td>
-        <td className="p-2 text-right">{row.vkBottle.toFixed(2)}</td>
-
-        {/* 🔹 Schwellwert */}
-        <td className="p-2 text-right">
-          <input
-            type="number"
-            defaultValue={currentThreshold}
-            onBlur={(e) =>
-              saveThreshold(row.id, parseInt(e.target.value || '0'), currentEmails)
-            }
-            className="bg-gray-900 border border-gray-700 rounded text-right w-20 p-1"
-          />
-        </td>
-
-        {/* 🔹 E-Mail */}
-        <td className="p-2">
-          <input
-            type="text"
-            defaultValue={currentEmails}
-            onBlur={(e) =>
-              saveThreshold(
-                row.id,
-                currentThreshold,
-                e.target.value.trim()
-              )
-            }
-            className="bg-gray-900 border border-gray-700 rounded w-56 p-1"
-          />
-        </td>
-
-        {/* 🔹 Aktionen */}
-        <td className="p-2 text-right space-x-1">
-          <button
-            onClick={() =>
-              saveThreshold(row.id, currentThreshold, currentEmails)
-            }
-            className="bg-blue-700 hover:bg-blue-800 rounded px-2 py-1 text-sm"
-          >
-            💾 Speichern
-          </button>
-
-          {/* ✉️ Test-Mail */}
-          <button
-            onClick={sendTestMail}
-            className="bg-teal-700 hover:bg-teal-800 rounded px-2 py-1 text-sm"
-          >
-            ✉️ Test-Mail
-          </button>
-        </td>
-      </tr>
-    )
-  })}
-</tbody>
-
-
+                  return (
+                    <tr key={row.id} className={`border-t border-gray-700 ${low ? 'bg-red-950/30' : ''}`}>
+                      <td className="p-2">{row.name}</td>
+                      <td className={`p-2 text-right ${low ? 'text-red-400 font-semibold' : ''}`}>{row.stock}</td>
+                      <td className="p-2 text-right">{row.sold}</td>
+                      <td className="p-2 text-right">{ekCrate ? (ekCrate/100).toFixed(2) : ''}</td>
+                      <td className="p-2 text-right">{row.ekBottle!=null ? row.ekBottle.toFixed(2) : ''}</td>
+                      <td className="p-2 text-right">{row.vkBottle.toFixed(2)}</td>
+                      <td className="p-2 text-right">
+                        <input
+                          type="number"
+                          defaultValue={currentThreshold}
+                          onBlur={(e)=>saveThreshold(row.id, parseInt(e.target.value || '0'), currentEmails)}
+                          className="bg-gray-900 border border-gray-700 rounded text-right w-20 p-1"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          defaultValue={currentEmails}
+                          onBlur={(e)=>saveThreshold(row.id, currentThreshold, e.target.value.trim())}
+                          className="bg-gray-900 border border-gray-700 rounded w-56 p-1"
+                        />
+                      </td>
+                      <td className="p-2 text-right space-x-1">
+                        <button onClick={()=>saveThreshold(row.id, currentThreshold, currentEmails)} className="bg-blue-700 hover:bg-blue-800 rounded px-2 py-1 text-sm">💾 Speichern</button>
+                        <button onClick={sendTestMail} className="bg-teal-700 hover:bg-teal-800 rounded px-2 py-1 text-sm">✉️ Test-Mail</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
             </table>
           </div>
         </section>
 
-        {/* Zugang buchen */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">Zugang buchen (Flaschen)</h2>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <select className="bg-gray-900 border border-gray-700 rounded p-2" value={purchaseForm.drink_id} onChange={e=>setPurchaseForm(p=>({...p,drink_id:e.target.value}))}>
-              <option value="">Getränk wählen…</option>
-              {drinks.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <input type="number" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Anzahl Flaschen" value={purchaseForm.bottles} onChange={e=>setPurchaseForm(p=>({...p,bottles:e.target.value}))}/>
-            <input type="number" step="0.01" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="EK gesamt (€)" value={purchaseForm.total_price_eur} onChange={e=>setPurchaseForm(p=>({...p,total_price_eur:e.target.value}))}/>
-            <div className="self-center text-gray-400 text-sm">
-              EK/Flasche: {(()=>{
-                const b=Number(purchaseForm.bottles), eur=Number(purchaseForm.total_price_eur)
-                return (b>0 && eur>0) ? (eur/b).toFixed(2)+' €' : '-'
-              })()}
+        {/* Bestand pflegen: Zugang & Korrektur */}
+        <section id="actions" className="grid md:grid-cols-2 gap-4">
+          {/* Zugang buchen */}
+          <div className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+            <h2 className="text-lg font-semibold">Zugang buchen (Flaschen)</h2>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <select className="bg-gray-900 border border-gray-700 rounded p-2" value={purchaseForm.drink_id} onChange={e=>setPurchaseForm(p=>({...p,drink_id:e.target.value}))}>
+                <option value="">Getränk wählen…</option>
+                {drinks.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <input type="number" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Anzahl Flaschen" value={purchaseForm.bottles} onChange={e=>setPurchaseForm(p=>({...p,bottles:e.target.value}))}/>
+              <input type="number" step="0.01" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="EK gesamt (€)" value={purchaseForm.total_price_eur} onChange={e=>setPurchaseForm(p=>({...p,total_price_eur:e.target.value}))}/>
+              <div className="self-center text-gray-400 text-sm">
+                EK/Flasche: {(()=>{
+                  const b=Number(purchaseForm.bottles), eur=Number(purchaseForm.total_price_eur)
+                  return (b>0 && eur>0) ? (eur/b).toFixed(2)+' €' : '-'
+                })()}
+              </div>
+              <button onClick={saveBottlePurchase} className="bg-green-700 hover:bg-green-800 rounded p-2 font-medium">Speichern</button>
             </div>
-            <button onClick={saveBottlePurchase} className="bg-green-700 hover:bg-green-800 rounded p-2 font-medium">Speichern</button>
+          </div>
+
+          {/* Bestand korrigieren */}
+          <div className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+            <h2 className="text-lg font-semibold">Bestand korrigieren (± Flaschen)</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <select className="bg-gray-900 border border-gray-700 rounded p-2" value={adjustForm.drink_id} onChange={e=>setAdjustForm(p=>({...p,drink_id:e.target.value}))}>
+                <option value="">Getränk wählen…</option>
+                {drinks.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <input type="number" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="± Flaschen (z. B. -3)" value={adjustForm.delta_bottles} onChange={e=>setAdjustForm(p=>({...p,delta_bottles:e.target.value}))}/>
+              <input type="text" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Notiz (Inventur/Bruch/Verlust)…" value={adjustForm.note} onChange={e=>setAdjustForm(p=>({...p,note:e.target.value}))}/>
+              <button onClick={applyStockAdjustment} className="bg-blue-700 hover:bg-blue-800 rounded p-2 font-medium">Korrigieren</button>
+            </div>
           </div>
         </section>
 
-        {/* Bestand korrigieren */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
-          <h2 className="text-lg font-semibold">Bestand korrigieren (± Flaschen)</h2>
+        {/* Globaler Freibier-Pool */}
+        <section id="freepool" className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+          <h2 className="text-lg font-semibold">🎁 Globaler Freibier-Pool</h2>
+          <p className="text-sm text-gray-300">Aktueller Freibierbestand: <b>{freePool}</b> Flaschen</p>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <select className="bg-gray-900 border border-gray-700 rounded p-2" value={adjustForm.drink_id} onChange={e=>setAdjustForm(p=>({...p,drink_id:e.target.value}))}>
-              <option value="">Getränk wählen…</option>
-              {drinks.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <input type="number" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="± Flaschen (z. B. -3)" value={adjustForm.delta_bottles} onChange={e=>setAdjustForm(p=>({...p,delta_bottles:e.target.value}))}/>
-            <input type="text" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Notiz (Inventur/Bruch/Verlust)…" value={adjustForm.note} onChange={e=>setAdjustForm(p=>({...p,note:e.target.value}))}/>
-            <button onClick={applyStockAdjustment} className="bg-blue-700 hover:bg-blue-800 rounded p-2 font-medium">Korrigieren</button>
+            <input type="number" id="adjustFreePoolInput" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Anzahl (z. B. +20 oder -10)"/>
+            <input type="text" id="adjustFreePoolNote" className="bg-gray-900 border border-gray-700 rounded p-2" placeholder="Kommentar (optional)"/>
+            <button
+              className="bg-pink-700 hover:bg-pink-800 rounded p-2 font-medium"
+              onClick={async ()=>{
+                const inputEl = document.getElementById('adjustFreePoolInput') as HTMLInputElement
+                const noteEl = document.getElementById('adjustFreePoolNote') as HTMLInputElement
+                const delta = Number(inputEl.value || 0)
+                const note = noteEl.value || ''
+                if (!delta) return addToast('Bitte eine Anzahl eingeben','error')
+                const { error } = await supabase.rpc('terminal_decrement_free_pool', { _id: 1, _used: -delta })
+                if (error) { console.error(error); addToast('Fehler beim Anpassen des Freibierpools','error') }
+                else { setFreePool(prev=>Math.max(0, prev + delta)); addToast('Freibierbestand angepasst ✅'); inputEl.value=''; noteEl.value='' }
+                await supabase.from('free_pool_log').insert({ change: delta, note, created_at: new Date().toISOString() }).catch(()=>{})
+              }}
+            >
+              Freibestand anpassen
+            </button>
           </div>
+          <p className="text-xs text-gray-400">Positiver Wert = hinzufügen, negativer Wert = abziehen.</p>
         </section>
 
-        {/* Zahlungen (verifiziert) */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+        {/* Zahlungen */}
+        <section id="payments" className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
           <h2 className="text-lg font-semibold">💳 Verifizierte Zahlungen (Zeitraum)</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
@@ -600,10 +539,8 @@ pushSection(
           </div>
         </section>
 
-      
-
-        {/* App-Kisten (Freibier) mit Bereitsteller */}
-        <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+        {/* App-Kisten (Freibier) */}
+        <section id="appcrates" className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
           <h2 className="text-lg font-semibold">🎁 Bereitgestellte Kisten (App-Freibier)</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
