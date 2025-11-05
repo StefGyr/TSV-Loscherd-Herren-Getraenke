@@ -37,6 +37,23 @@ export default function InventoryRevenuePage() {
   const [thresholds,setThresholds]=useState<Threshold[]>([])
   const [loading,setLoading]=useState(true)
   const [toasts,setToasts]=useState<{id:number;text:string;type?:'success'|'error'}[]>([])
+  // 🎁 Globaler Freibier-Pool (alle Getränke gemeinsam)
+const [freePool, setFreePool] = useState<number>(0)
+
+// Lädt den globalen Freibestand (aus Tabelle "free_pool")
+useEffect(() => {
+  const loadFreePool = async () => {
+    const { data, error } = await supabase
+      .from('free_pool')
+      .select('quantity_remaining')
+      .eq('id', 1)
+      .maybeSingle()
+    if (!error && data) setFreePool(data.quantity_remaining || 0)
+  }
+
+  loadFreePool()
+}, [])
+
 
   const addToast=(text:string,type:'success'|'error'='success')=>{
     const id=Date.now(); setToasts(p=>[...p,{id,text,type}]); setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3200)
@@ -336,6 +353,68 @@ pushSection(
           <Stat title="Gewinn" value={euro(profitCents)} />
           <Stat title="Offene Posten" value={euro(openPostenCents)} />
         </div>
+
+        {/* 🎁 Globaler Freibier-Pool */}
+<section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+  <h2 className="text-lg font-semibold">🎁 Globaler Freibier-Pool</h2>
+  <p className="text-sm text-gray-300">
+    Aktueller Freibierbestand: <b>{freePool}</b> Flaschen
+  </p>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input
+      type="number"
+      id="adjustFreePoolInput"
+      className="bg-gray-900 border border-gray-700 rounded p-2"
+      placeholder="Anzahl (z. B. +20 oder -10)"
+    />
+    <input
+      type="text"
+      id="adjustFreePoolNote"
+      className="bg-gray-900 border border-gray-700 rounded p-2"
+      placeholder="Kommentar (optional)"
+    />
+    <button
+      className="bg-pink-700 hover:bg-pink-800 rounded p-2 font-medium"
+      onClick={async () => {
+        const inputEl = document.getElementById('adjustFreePoolInput') as HTMLInputElement
+        const noteEl = document.getElementById('adjustFreePoolNote') as HTMLInputElement
+        const delta = Number(inputEl.value || 0)
+        const note = noteEl.value || ''
+
+        if (!delta) {
+          addToast('Bitte eine Anzahl eingeben', 'error')
+          return
+        }
+
+        const { error } = await supabase.rpc('terminal_decrement_free_pool', { _id: 1, _used: -delta })
+        if (error) {
+          console.error(error)
+          addToast('Fehler beim Anpassen des Freibierpools', 'error')
+        } else {
+          setFreePool((prev) => Math.max(0, prev + delta))
+          addToast('Freibierbestand angepasst ✅')
+          inputEl.value = ''
+          noteEl.value = ''
+        }
+
+        // Optional: Log in separate Tabelle schreiben (wenn vorhanden)
+        await supabase.from('free_pool_log').insert({
+          change: delta,
+          note: note,
+          created_at: new Date().toISOString(),
+        })
+      }}
+    >
+      Freibestand anpassen
+    </button>
+  </div>
+
+  <p className="text-xs text-gray-400">
+    Positiver Wert = Freibier hinzufügen, negativer Wert = Freibier abziehen.
+  </p>
+</section>
+
 
         {/* Bestand */}
         <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-4">
