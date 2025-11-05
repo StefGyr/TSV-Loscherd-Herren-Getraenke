@@ -529,7 +529,7 @@ export default function InventoryRevenuePage() {
         if (logError)
           console.warn('Fehler beim Loggen in free_pool_log:', logError)
       }}
-    >
+    
       Freibestand anpassen
     </button>
   </div>
