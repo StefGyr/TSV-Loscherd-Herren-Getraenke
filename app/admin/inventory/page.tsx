@@ -479,7 +479,16 @@ export default function InventoryRevenuePage() {
           </div>
         </section>
 
-         {/* Freibier-Eingabe über React-State */}
+         {/* Globaler Freibier-Pool */}
+<section
+  id="freepool"
+  className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3"
+>
+  <h2 className="text-lg font-semibold">🎁 Globaler Freibier-Pool</h2>
+  <p className="text-sm text-gray-300">
+    Aktueller Freibierbestand: <b>{freePool}</b> Flaschen
+  </p>
+
   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
     <input
       type="number"
@@ -488,7 +497,7 @@ export default function InventoryRevenuePage() {
         setAdjustForm((p) => ({ ...p, delta_bottles: e.target.value }))
       }
       className="bg-gray-900 border border-gray-700 rounded p-2"
-      placeholder="Anzahl (z. B. +20 oder -10)"
+      placeholder="Anzahl (z. B. +20 oder −10)"
     />
     <input
       type="text"
@@ -504,21 +513,32 @@ export default function InventoryRevenuePage() {
       onClick={async () => {
         const delta = Number(adjustForm.delta_bottles || 0)
         const note = adjustForm.note || ''
-        if (!delta) return addToast('Bitte eine Anzahl eingeben', 'error')
 
+        if (!delta) {
+          addToast('Bitte eine Anzahl eingeben', 'error')
+          return
+        }
+
+        // 🔹 1. RPC-Funktion aufrufen (ändert DB-Wert)
         const { error } = await supabase.rpc('terminal_decrement_free_pool', {
           _id: 1,
-          _used: -delta,
+          _used: -delta, // positiv = abziehen, negativ = hinzufügen
         })
+
         if (error) {
           console.error(error)
           addToast('Fehler beim Anpassen des Freibierpools', 'error')
-        } else {
-          setFreePool((prev) => Math.max(0, prev + delta))
-          addToast('Freibierbestand angepasst ✅')
-          setAdjustForm({ drink_id: '', delta_bottles: '', note: '' })
+          return
         }
 
+        // 🔹 2. Lokalen State aktualisieren
+        setFreePool((prev) => Math.max(0, prev + delta))
+        addToast('Freibierbestand angepasst ✅')
+
+        // 🔹 3. Eingabefelder leeren
+        setAdjustForm({ drink_id: '', delta_bottles: '', note: '' })
+
+        // 🔹 4. Optional: Log schreiben
         const { error: logError } = await supabase
           .from('free_pool_log')
           .insert({
@@ -529,13 +549,16 @@ export default function InventoryRevenuePage() {
         if (logError)
           console.warn('Fehler beim Loggen in free_pool_log:', logError)
       }}
-    
+    >
       Freibestand anpassen
     </button>
   </div>
 
-          <p className="text-xs text-gray-400">Positiver Wert = hinzufügen, negativer Wert = abziehen.</p>
-        </section>
+  <p className="text-xs text-gray-400">
+    Positiver Wert = hinzufügen, negativer Wert = abziehen.
+  </p>
+</section>
+
 
         {/* Zahlungen */}
         <section id="payments" className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
