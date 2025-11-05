@@ -494,10 +494,11 @@ export default function InventoryRevenuePage() {
                 const delta = Number(inputEl.value || 0)
                 const note = noteEl.value || ''
                 if (!delta) return addToast('Bitte eine Anzahl eingeben','error')
-                const { error } = await supabase.rpc('terminal_decrement_free_pool', { _id: 1, _used: -delta })
-                if (error) { console.error(error); addToast('Fehler beim Anpassen des Freibierpools','error') }
-                else { setFreePool(prev=>Math.max(0, prev + delta)); addToast('Freibierbestand angepasst ✅'); inputEl.value=''; noteEl.value='' }
-                await supabase.from('free_pool_log').insert({ change: delta, note, created_at: new Date().toISOString() }).catch(()=>{})
+                const { error: logError } = await supabase
+  .from('free_pool_log')
+  .insert({ change: delta, note, created_at: new Date().toISOString() })
+if (logError) console.warn('Fehler beim Loggen in free_pool_log:', logError)
+
               }}
             >
               Freibestand anpassen
