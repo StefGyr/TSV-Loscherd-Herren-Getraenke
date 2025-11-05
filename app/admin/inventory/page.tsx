@@ -189,7 +189,11 @@ const costCents = useMemo(
     const drink_id=Number(purchaseForm.drink_id)
     const bottles=Number(purchaseForm.bottles)
     const totalPriceCents=Math.round(Number(purchaseForm.total_price_eur)*100)
-    if(!drink_id||!bottles||!totalPriceCents){ addToast('Bitte Getränk, Flaschenanzahl und Gesamt-EK angeben','error'); return }
+    if (!drink_id || !bottles) {
+  addToast('Bitte Getränk und Flaschenanzahl angeben', 'error')
+  return
+}
+
     const crateQty=bottles/BOTTLES_PER_CRATE
     const {error}=await supabase.from('purchases').insert({ drink_id, quantity: crateQty, crate_price_cents: totalPriceCents })
     if(error){ addToast('Speichern fehlgeschlagen (prüfe Datentyp von purchases.quantity)','error'); return }
@@ -516,6 +520,72 @@ pushSection(
             </table>
           </div>
         </section>
+
+        {/* Freibier / Freigetränke manuell anpassen */}
+<section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
+  <h2 className="text-lg font-semibold">Freibier / Freigetränke manuell anpassen</h2>
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <select
+      className="bg-gray-900 border border-gray-700 rounded p-2"
+      value={adjustForm.drink_id}
+      onChange={(e) => setAdjustForm((p) => ({ ...p, drink_id: e.target.value }))}
+    >
+      <option value="">Getränk wählen…</option>
+      {drinks.map((d) => (
+        <option key={d.id} value={d.id}>{d.name}</option>
+      ))}
+    </select>
+    <input
+      type="number"
+      className="bg-gray-900 border border-gray-700 rounded p-2"
+      placeholder="Anzahl Freibier (z. B. +20 oder -5)"
+      value={adjustForm.delta_bottles}
+      onChange={(e) => setAdjustForm((p) => ({ ...p, delta_bottles: e.target.value }))}
+    />
+    <input
+      type="text"
+      className="bg-gray-900 border border-gray-700 rounded p-2"
+      placeholder="Kommentar (optional)"
+      value={adjustForm.note}
+      onChange={(e) => setAdjustForm((p) => ({ ...p, note: e.target.value }))}
+    />
+    <button
+      onClick={async () => {
+        const drink_id = Number(adjustForm.drink_id)
+        const qty = Number(adjustForm.delta_bottles)
+        if (!drink_id || !qty) {
+          addToast('Bitte Getränk und Anzahl angeben', 'error')
+          return
+        }
+
+        const { error } = await supabase.from('consumptions').insert({
+          drink_id,
+          quantity: qty,
+          unit_price_cents: 0,
+          source: 'free_adjust',
+          via_terminal: false,
+        })
+
+        if (error) {
+          console.error(error)
+          addToast('Fehler beim Anpassen der Freibiermenge', 'error')
+        } else {
+          addToast('Freibiermenge erfolgreich angepasst ✅')
+          setAdjustForm({ drink_id: '', delta_bottles: '', note: '' })
+          const { data } = await supabase.from('consumptions').select('*')
+          setConsumptions(data || [])
+        }
+      }}
+      className="bg-pink-700 hover:bg-pink-800 rounded p-2 font-medium"
+    >
+      Speichern
+    </button>
+  </div>
+  <p className="text-xs text-gray-400">
+    Hinweis: Hiermit kannst du die Menge der Freibier-/Gratisgetränke manuell erhöhen oder verringern.
+  </p>
+</section>
+
 
         {/* App-Kisten (Freibier) mit Bereitsteller */}
         <section className="bg-gray-800/70 p-4 rounded border border-gray-700 shadow space-y-3">
