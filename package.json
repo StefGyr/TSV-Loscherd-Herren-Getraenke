@@ -22,12 +22,14 @@
     "nodemailer": "^6.9.8"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/papaparse": "^5.3.16",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+  "@tailwindcss/postcss": "^4",
+  "@types/node": "^20",
+  "@types/papaparse": "^5.3.16",
+  "@types/react": "^19",
+  "@types/react-dom": "^19",
+  "@types/nodemailer": "^6.4.13",
+  "tailwindcss": "^4",
+  "typescript": "^5"
+}
+
 }
