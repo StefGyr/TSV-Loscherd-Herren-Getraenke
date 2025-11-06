@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "nodemailer": "^6.9.8"
+
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.76.1",
