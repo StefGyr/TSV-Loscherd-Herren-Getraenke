@@ -1,46 +1,46 @@
+import nodemailer from 'nodemailer'
 import { NextResponse } from 'next/server'
 
-// Beispiel mit Resend (https://resend.com) – ENV: RESEND_API_KEY
-// Alternativ geht jeder SMTP-Provider via nodemailer.
 export async function POST(req: Request) {
-  const { drinkName, stock, threshold, recipients } = await req.json()
-  const toList = String(recipients || '').split(',').map((s)=>s.trim()).filter(Boolean)
-  if (toList.length === 0) return NextResponse.json({ ok: false, error: 'no recipients' }, { status: 400 })
+  const { drinkName, stock, threshold, recipients, test } = await req.json()
 
-  const subject = `⚠️ Niedriger Bestand: ${drinkName} (Bestand ${stock} < Schwelle ${threshold})`
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT),
+    secure: false, // TLS über Port 587
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  })
+
+  const toList = String(recipients || '').split(',').map(s => s.trim()).filter(Boolean)
+  const subject = test
+    ? `✅ Test-Mail: Low-Stock-Benachrichtigung für ${drinkName}`
+    : `⚠️ Niedriger Bestand: ${drinkName} (${stock} < ${threshold})`
+
   const text = [
-    `Hallo,`,
-    ``,
-    `für "${drinkName}" wurde ein niedriger Bestand erkannt.`,
-    `Aktueller Bestand: ${stock} Flaschen`,
+    test ? 'Dies ist eine Test-Mail.' : 'Es wurde ein niedriger Bestand erkannt!',
+    '',
+    `Getränk: ${drinkName}`,
+    `Bestand: ${stock} Flaschen`,
     `Warnschwelle: ${threshold} Flaschen`,
-    ``,
+    '',
     `Zeit: ${new Date().toLocaleString('de-DE')}`,
-    ``,
-    `— TSV Getränke-System`
+    '',
+    '— TSV Getränke-System',
   ].join('\n')
 
   try {
-    // Resend
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'TSV Getränke <no-reply@tsv-lonnerstadt.de>',
-        to: toList,
-        subject,
-        text,
-      })
+    await transporter.sendMail({
+      from: `"TSV Getränke" <${process.env.SMTP_USER}>`,
+      to: toList,
+      subject,
+      text,
     })
-    if (!resp.ok) {
-      const err = await resp.text()
-      return NextResponse.json({ ok:false, error: err }, { status: 500 })
-    }
     return NextResponse.json({ ok: true })
-  } catch (e:any) {
-    return NextResponse.json({ ok:false, error: String(e) }, { status: 500 })
+  } catch (err: any) {
+    console.error('Mailversand fehlgeschlagen:', err)
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 })
   }
 }
