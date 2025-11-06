@@ -8,8 +8,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "nodemailer": "^6.9.8"
-
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.76.1",
@@ -20,7 +18,8 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "recharts": "^3.3.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "nodemailer": "^6.9.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
