@@ -1,20 +1,14 @@
-import nodemailer from 'nodemailer'
 import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
   const { drinkName, stock, threshold, recipients, test } = await req.json()
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: false, // TLS über Port 587
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  })
+  // Empfänger-Liste normalisieren
+  const toList = String(recipients || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
 
-  const toList = String(recipients || '').split(',').map(s => s.trim()).filter(Boolean)
   const subject = test
     ? `✅ Test-Mail: Low-Stock-Benachrichtigung für ${drinkName}`
     : `⚠️ Niedriger Bestand: ${drinkName} (${stock} < ${threshold})`
@@ -32,12 +26,27 @@ export async function POST(req: Request) {
   ].join('\n')
 
   try {
-    await transporter.sendMail({
-      from: `"TSV Getränke" <${process.env.SMTP_USER}>`,
-      to: toList,
-      subject,
-      text,
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        // Mit dieser Absenderadresse funktioniert es sofort – keine Domain-Verifizierung nötig:
+        from: 'TSV Getränke <onboarding@resend.dev>',
+        to: toList,
+        subject,
+        text,
+      }),
     })
+
+    const data = await res.json()
+    if (!res.ok) {
+      console.error('Resend error:', data)
+      return NextResponse.json({ ok: false, error: data }, { status: 500 })
+    }
+
     return NextResponse.json({ ok: true })
   } catch (err: any) {
     console.error('Mailversand fehlgeschlagen:', err)
