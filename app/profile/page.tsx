@@ -2,10 +2,22 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import Link from 'next/link'
 import TopNav from '@/components/TopNav'
 import { supabase } from '@/lib/supabase-browser'
-import { Beer, Gift, Wallet, Star, PiggyBank } from 'lucide-react'
-
+import {
+  PiggyBank,
+  CreditCard,
+  History,
+  TrendingUp,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Calendar,
+  Beer,
+  Gift
+} from 'lucide-react'
+import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 type PopupData =
   | null
@@ -40,11 +52,16 @@ export default function ProfilePage() {
   const [newPin, setNewPin] = useState('')
   const [pinMessage, setPinMessage] = useState('')
 
+  // Stats & Chart Data
   const [stats, setStats] = useState({
     totalDrinks: 0,
     totalFree: 0,
     lastPayment: null as null | { amount: number; created_at: string },
+    favoriteDrink: '—',
+    since: new Date(),
+    averagePerWeek: '0'
   })
+  const [chartData, setChartData] = useState<any[]>([])
 
   const addToast = (text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -54,8 +71,10 @@ export default function ProfilePage() {
 
   const formatDateTime = (ts: string) => {
     const d = new Date(ts)
-    return `${d.toLocaleDateString()} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} Uhr`
+    return `${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })} • ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
   }
+
+  const euro = (val: number) => `${(val).toFixed(2)} €`
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -84,14 +103,71 @@ export default function ProfilePage() {
     setProfile(prof)
     setPin(prof?.pin || '')
 
-    const totalDrinks = (cons || []).reduce((sum, c) => sum + (c.quantity || 0), 0)
-    // 🔹 Freibier: tatsächliche Anzahl getrunkener Gratisgetränke (nicht nur Buchungen)
-    const totalFree = (cons || [])
+    // 🔹 YTD Filter (Seit 1. Januar)
+    const currentYear = new Date().getFullYear()
+    const startOfYear = new Date(currentYear, 0, 1)
+
+    // Filter für YTD-Berechnungen
+    const consYTD = (cons || []).filter(c => new Date(c.created_at) >= startOfYear)
+
+    const totalDrinks = consYTD.reduce((sum, c) => sum + (c.quantity || 0), 0)
+
+    const totalFree = consYTD
       .filter((c) => (c.unit_price_cents || 0) === 0)
       .reduce((sum, c) => sum + (c.quantity || 0), 0)
 
     const lastPayment = pay && pay.length > 0 ? { amount: pay[0].amount_cents / 100, created_at: pay[0].created_at } : null
-    setStats({ totalDrinks, totalFree, lastPayment })
+
+    // 🔹 Erweiterte Stats (YTD Basis)
+    let favoriteDrink = '—'
+    let since = startOfYear // Fallback
+    let averagePerWeek = '0'
+
+    if (consYTD.length > 0) {
+      // Favorit (YTD)
+      const map: Record<string, number> = {}
+      consYTD.forEach(c => {
+        const name = c.drinks?.name || 'Unbekannt'
+        map[name] = (map[name] || 0) + (c.quantity || 0)
+      })
+      const top = Object.entries(map).sort((a, b) => b[1] - a[1])[0]
+      if (top) favoriteDrink = `${top[0]} (${top[1]})`
+
+      // Durchschnitt (YTD)
+      // Wir nehmen die aktuelle Kalenderwoche des Jahres als Teiler
+      const now = new Date()
+      const oneJan = new Date(now.getFullYear(), 0, 1)
+      const numberOfDays = Math.floor((now.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000))
+      const currentWeek = Math.max(1, Math.ceil((now.getDay() + 1 + numberOfDays) / 7))
+
+      averagePerWeek = (totalDrinks / currentWeek).toFixed(1)
+    }
+
+    setStats({ totalDrinks, totalFree, lastPayment, favoriteDrink, since, averagePerWeek })
+
+    // --- Chart Data Calculation (Last 6 Months) ---
+    const now = new Date()
+    const months = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      months.push({
+        month: d.toLocaleString('de-DE', { month: 'short' }),
+        iso: d.toISOString().slice(0, 7), // YYYY-MM
+        amount: 0,
+        count: 0
+      })
+    }
+
+    (cons || []).forEach(c => {
+      const monthStr = c.created_at.slice(0, 7) // YYYY-MM
+      const amount = ((c.quantity || 0) * (c.unit_price_cents || 0)) / 100
+      const slot = months.find(m => m.iso === monthStr)
+      if (slot) {
+        slot.amount += amount
+        slot.count += (c.quantity || 0)
+      }
+    })
+    setChartData(months)
   }
 
   useEffect(() => {
@@ -148,8 +224,7 @@ export default function ProfilePage() {
         continue
       }
 
-      // Case 3: Paid Drink / Paid Crate (Price > 0, Quantity > 0)
-      // "Bought Crate" (q=20) falls here and is added to the drink name (e.g. "Bier")
+      // Case 3: Paid Drink
       if (price > 0 && qty > 0) {
         const name = b.drinks?.name || 'Unbekannt'
         if (!rows[name]) rows[name] = { qty: 0, sumCents: 0 }
@@ -158,31 +233,11 @@ export default function ProfilePage() {
       }
     }
 
-    // Add Provisions Row
-    if (provisionQty > 0) {
-      rows['🎁 Bereitgestellte Kisten'] = { qty: provisionQty, sumCents: provisionTotal }
-    }
-
-    // Add Free Drinks Row
-    if (freeQty > 0) {
-      rows['🎉 Verbrauchte Freigetränke'] = { qty: freeQty, sumCents: 0 }
-    }
+    if (provisionQty > 0) rows['📦 Bereitgestellte Kisten'] = { qty: provisionQty, sumCents: provisionTotal }
+    if (freeQty > 0) rows['🎁 Verbrauchte Freigetränke'] = { qty: freeQty, sumCents: 0 }
 
     return rows
   }, [filteredBookings])
-
-  const favoriteDrink = useMemo(() => {
-    const map: Record<string, number> = {}
-    for (const b of bookings) {
-      const name = b.drinks?.name || 'Unbekannt'
-      map[name] = (map[name] || 0) + (b.quantity || 0)
-    }
-    let fav: { name: string; qty: number } | null = null
-    for (const [name, qty] of Object.entries(map)) {
-      if (!fav || qty > fav.qty) fav = { name, qty }
-    }
-    return fav
-  }, [bookings])
 
   const balanceCents = profile?.open_balance_cents ?? 0
   const isDebt = balanceCents > 0
@@ -192,12 +247,9 @@ export default function ProfilePage() {
   const openPaymentPopup = (method: 'bar' | 'paypal') => {
     const balance = profile?.open_balance_cents ?? 0
     const owes = balance > 0 ? (balance / 100).toFixed(2) : ''
-
-    // 🔹 Vorausfüllen mit noch offenem Betrag (falls > 0), sonst leer
     setAmountInput(owes)
-    setPopup({ title: method === 'paypal' ? 'PayPal-Zahlung melden' : 'Barzahlung melden', method })
+    setPopup({ title: method === 'paypal' ? 'PayPal-Zahlung' : 'Barzahlung', method })
   }
-
 
   const handleConfirmPayment = () => {
     const num = parseFloat(amountInput.replace(',', '.') || '')
@@ -217,14 +269,10 @@ export default function ProfilePage() {
   }
 
   const recordPayment = async (amount: number, method: 'bar' | 'paypal') => {
-    if (!profile) return addToast('Profil konnte nicht geladen werden', 'error')
+    if (!profile) return addToast('Profilfehler', 'error')
 
     let paypalWindow: Window | null = null
-
-    // 🔹 Fenster direkt beim Klick öffnen, damit Browser es nicht blockt
-    if (method === 'paypal') {
-      paypalWindow = window.open('', '_blank')
-    }
+    if (method === 'paypal') paypalWindow = window.open('', '_blank')
 
     const { error } = await supabase.from('payments').insert([
       {
@@ -236,41 +284,27 @@ export default function ProfilePage() {
     ])
 
     if (error) {
-      // Falls Insert fehlschlägt: geöffnetes Fenster wieder schließen
-      if (paypalWindow) {
-        paypalWindow.close()
-      }
-      return addToast('Fehler beim Melden der Zahlung', 'error')
+      if (paypalWindow) paypalWindow.close()
+      return addToast('Fehler beim Speichern', 'error')
     }
 
-    addToast(
-      method === 'bar'
-        ? '💵 Barzahlung gemeldet – wird nach Admin-Freigabe wirksam.'
-        : '💳 Zahlung gemeldet – wird nach Admin-Freigabe wirksam.',
-      'success'
-    )
+    addToast('Zahlung gemeldet. Warte auf Bestätigung.', 'success')
     setPopup(null)
     setExtraPopup(null)
     fetchData(user.id)
 
     if (method === 'paypal') {
-      const redirect = `https://paypal.me/benjamindenert/${amount}`
-      if (paypalWindow) {
-        paypalWindow.location.href = redirect
-      } else {
-        // Fallback, falls Popup doch geblockt wurde
-        window.location.href = redirect
-      }
+      const redirect = `https://paypal.me/benjamindenert/${amount.toFixed(2)}`
+      if (paypalWindow) paypalWindow.location.href = redirect
+      else window.location.href = redirect
     }
   }
-
-
 
   const handleExtraChoice = (choice: 'credit' | 'tip') => {
     if (!extraPopup) return
     const { owes, diff, amount, method } = extraPopup
     if (choice === 'tip') {
-      addToast(`${diff.toFixed(2)} € als Trinkgeld (nicht verbucht).`, 'success')
+      addToast(`${diff.toFixed(2)} € als Trinkgeld.`, 'success')
       recordPayment(owes, method)
     } else {
       addToast(`${diff.toFixed(2)} € als Guthaben.`, 'success')
@@ -283,13 +317,10 @@ export default function ProfilePage() {
     if (newPin.length !== 6 || isNaN(Number(newPin))) {
       return setPinMessage('PIN muss 6 Ziffern haben.')
     }
-
     const { data: existing } = await supabase.from('profiles').select('id').eq('pin', newPin)
-    if (existing && existing.length > 0) return setPinMessage('PIN ist bereits vergeben.')
-
+    if (existing && existing.length > 0) return setPinMessage('PIN ist schon vergeben.')
     const { error } = await supabase.from('profiles').update({ pin: newPin }).eq('id', user.id)
     if (error) return setPinMessage('Fehler beim Speichern.')
-
     setPin(newPin)
     setNewPin('')
     setPinMessage('PIN erfolgreich geändert ✅')
@@ -298,220 +329,230 @@ export default function ProfilePage() {
   return (
     <>
       <TopNav />
-      <div className="pt-20 max-w-5xl mx-auto p-4 text-white space-y-8">
-        <h1 className="text-2xl md:text-3xl font-bold mb-2">
-          Mein Profil
-          {profile?.first_name && (
-            <span className="text-gray-400 ml-2 text-base md:text-lg">
-              ({profile.first_name} {profile.last_name})
-            </span>
-          )}
-        </h1>
+      <div className="pt-24 min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-950 text-white pb-24 px-4">
+        <div className="max-w-4xl mx-auto space-y-8">
 
-        {/* --- Stat Cards --- */}
-        <section className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-          <StatCard
-            icon={<PiggyBank className="w-5 h-5" />}
-            label="Kontostand"
-            value={`${(Math.abs(balanceCents) / 100).toFixed(2)} €`}
-            sub={
-              isDebt
-                ? 'Schulden'
-                : isCredit
-                  ? 'Guthaben'
-                  : 'Ausgeglichen'
-            }
-            accent={
-              isDebt
-                ? 'from-red-500/20 to-red-300/10'
-                : isCredit
-                  ? 'from-green-500/20 to-green-300/10'
-                  : 'from-gray-500/20 to-gray-300/10'
-            }
-          />
-          <StatCard icon={<Beer className="w-5 h-5" />} label="Gesamtverbrauch" value={stats.totalDrinks} accent="from-emerald-500/20 to-emerald-300/10" />
-          <StatCard icon={<Gift className="w-5 h-5" />} label="Freibier" value={stats.totalFree} accent="from-pink-500/20 to-pink-300/10" />
-          <StatCard
-            icon={<Wallet className="w-5 h-5" />}
-            label="Letzte Zahlung"
-            value={stats.lastPayment ? `${stats.lastPayment.amount.toFixed(2)} €` : '—'}
-            sub={stats.lastPayment ? new Date(stats.lastPayment.created_at).toLocaleDateString() : ''}
-            accent="from-blue-500/20 to-blue-300/10"
-          />
-          <StatCard
-            icon={<Star className="w-5 h-5" />}
-            label="Lieblingsgetränk"
-            value={favoriteDrink ? favoriteDrink.name : '—'}
-            sub={favoriteDrink ? `${favoriteDrink.qty}×` : ''}
-            accent="from-amber-500/20 to-amber-300/10"
-          />
-        </section>
-
-        {/* --- Zahlungen direkt unter Karten --- */}
-        <section className="bg-gray-800/70 p-4 rounded-2xl border border-gray-700/70 space-y-4">
-          <h2 className="text-xl font-semibold">💳 Zahlungen</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
-            <button onClick={() => openPaymentPopup('bar')} className="bg-yellow-600 hover:bg-yellow-700 p-2 rounded-lg font-medium shadow-sm">
-              💵 Barzahlung melden
-            </button>
-            <button onClick={() => openPaymentPopup('paypal')} className="bg-blue-700 hover:bg-blue-800 p-2 rounded-lg font-medium shadow-sm">
-              💳 PayPal-Zahlung melden
-            </button>
+          {/* Header */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-neutral-800 pb-6">
+            <div>
+              <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-neutral-400">
+                Dein Profil
+              </h1>
+              <p className="text-neutral-400 mt-1">
+                {profile?.first_name} {profile?.last_name}
+              </p>
+            </div>
           </div>
 
-          <ul className="space-y-2">
-            {payments.length === 0 && <li className="text-gray-400">Keine Zahlungen vorhanden.</li>}
-            {payments.map((p, i) => (
-              <li
-                key={i}
-                className="p-3 rounded-2xl border bg-gray-900/80 border-gray-700/70 flex justify-between items-center"
-              >
-                <div>
-                  <span>
-                    {(p.amount_cents / 100).toFixed(2)} € • {p.method === 'paypal' ? 'PayPal' : 'Bar'}
-                  </span>
-                  <div className="text-xs text-gray-400">{formatDateTime(p.created_at)}</div>
+          {/* Main Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Left Column: Balance & Actions */}
+            <div className="lg:col-span-1 space-y-6">
+
+              {/* Balance Card */}
+              <div className="relative overflow-hidden rounded-3xl bg-neutral-900 border border-neutral-800 p-6 shadow-2xl">
+                <div className={`absolute inset-0 opacity-20 bg-gradient-to-br ${isDebt ? 'from-rose-600 to-rose-900' : 'from-emerald-600 to-emerald-900'}`} />
+                <div className="relative z-10 text-center py-4">
+                  <div className="text-neutral-400 text-sm uppercase tracking-wider font-medium mb-1">Aktueller Kontostand</div>
+                  <div className={`text-4xl font-bold tracking-tight ${isDebt ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {(Math.abs(balanceCents) / 100).toFixed(2)} €
+                  </div>
+                  <div className="text-neutral-500 text-sm mt-1">
+                    {isDebt ? 'Offener Betrag' : 'Guthaben'}
+                  </div>
                 </div>
-                <div className="text-sm text-gray-400">
-                  {p.verified ? (
-                    <span className="text-green-400">✅ Verifiziert</span>
+
+                {/* Quick Actions */}
+                <div className="relative z-10 grid grid-cols-2 gap-3 mt-6">
+                  <button onClick={() => openPaymentPopup('paypal')} className="flex flex-col items-center justify-center p-3 rounded-xl bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800/50 transition-colors group">
+                    <CreditCard className="w-6 h-6 text-blue-400 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs font-semibold text-blue-200">PayPal</span>
+                  </button>
+                  <button onClick={() => openPaymentPopup('bar')} className="flex flex-col items-center justify-center p-3 rounded-xl bg-amber-900/30 hover:bg-amber-900/50 border border-amber-800/50 transition-colors group">
+                    <Wallet className="w-6 h-6 text-amber-400 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs font-semibold text-amber-200">Bar</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats - Last Payment */}
+              <div className="rounded-3xl bg-neutral-900/50 border border-neutral-800 p-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-full bg-neutral-800 text-neutral-400"><History className="w-5 h-5" /></div>
+                  <div>
+                    <div className="text-xs text-neutral-500">Letzte Zahlung</div>
+                    <div className="font-medium text-white">{stats.lastPayment ? `${stats.lastPayment.amount.toFixed(2)} €` : '—'}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-neutral-600">{stats.lastPayment ? new Date(stats.lastPayment.created_at).toLocaleDateString() : ''}</div>
+              </div>
+
+              {/* Stats - Total Drinks Expanded */}
+              <div className="rounded-3xl bg-neutral-900 overflow-hidden border border-neutral-800">
+                <div className="p-5 flex items-center justify-between border-b border-neutral-800/50">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-full bg-neutral-800 text-emerald-400"><Beer className="w-5 h-5" /></div>
+                    <div>
+                      <div className="text-xs text-neutral-500">Getränke (dieses Jahr)</div>
+                      <div className="font-bold text-xl text-white">{stats.totalDrinks}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 space-y-3 bg-neutral-900/50">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-neutral-500">Lieblings-Drink</span>
+                    <span className="text-neutral-200 font-medium">{stats.favoriteDrink}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-neutral-500">Ø pro Woche</span>
+                    <span className="text-neutral-200 font-medium">{stats.averagePerWeek}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Right Column: Chart & Lists */}
+            <div className="lg:col-span-2 space-y-6">
+
+              {/* Chart */}
+              <div className="rounded-3xl bg-neutral-900 border border-neutral-800 p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-neutral-400" />
+                    <h3 className="font-semibold text-neutral-200">Ausgaben & Konsum</h3>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex gap-4 text-xs font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-sm bg-blue-500/60 block"></span>
+                      <span className="text-neutral-400">Ausgaben (€)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-8 h-1 bg-amber-400 rounded-full block relative top-[1px]"></span>
+                      <span className="text-neutral-400">Anzahl</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="month" stroke="#525252" fontSize={12} tickLine={false} axisLine={false} dy={10} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#171717', border: '1px solid #262626', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.3)' }}
+                        itemStyle={{ color: '#e5e5e5', fontSize: '12px' }}
+                        cursor={{ fill: '#262626' }}
+                        formatter={(value: any, name: string) => [
+                          name === 'amount' ? `${value.toFixed(2)} €` : `${value}x`,
+                          name === 'amount' ? 'Ausgaben' : 'Anzahl'
+                        ]}
+                        labelStyle={{ color: '#a3a3a3', marginBottom: '4px' }}
+                      />
+                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} barSize={32} name="amount">
+                        {chartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.amount > 20 ? '#10b981' : '#3b82f6'} fillOpacity={0.6} />
+                        ))}
+                      </Bar>
+                      <Line type="monotone" dataKey="count" stroke="#fbbf24" strokeWidth={3} dot={{ r: 4, fill: '#fbbf24', strokeWidth: 0 }} activeDot={{ r: 6 }} name="count" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Recent Transactions List */}
+              <div className="rounded-3xl bg-neutral-900 border border-neutral-800 overflow-hidden">
+                <div className="p-6 border-b border-neutral-800 flex justify-between items-center">
+                  <h3 className="font-semibold text-neutral-200">Aktivitäten</h3>
+                  <div className="flex gap-1">
+                    {['7days', 'month', 'all'].map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setFilter(f as Filter)}
+                        className={`text-[10px] uppercase font-bold px-3 py-1 rounded-full transition-colors ${filter === f ? 'bg-white text-black' : 'bg-neutral-800 text-neutral-500 hover:text-neutral-300'
+                          }`}
+                      >
+                        {f === '7days' ? '7 Tage' : f === 'month' ? 'Monat' : 'Alle'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
+                  {/* Summary Row */}
+                  {Object.keys(overview).length > 0 && (
+                    <div className="mb-4 mx-2 p-3 rounded-xl bg-neutral-800/50 border border-neutral-700/50">
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {Object.entries(overview).map(([name, d]: any) => (
+                            <tr key={name} className="border-b border-neutral-700/50 last:border-0">
+                              <td className="py-1 text-neutral-300">{name}</td>
+                              <td className="py-1 text-right text-neutral-400">{d.qty}x</td>
+                              <td className="py-1 text-right font-medium text-neutral-200">{(d.sumCents / 100).toFixed(2)} €</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {filteredBookings.length === 0 ? (
+                    <div className="text-center py-8 text-neutral-500 text-sm">Keine Einträge im Zeitraum</div>
                   ) : (
-                    <span className="text-yellow-400">⏳ Offen</span>
+                    filteredBookings.map((b, i) => {
+                      const isCredit = b.source === 'crate' && (b.quantity || 0) === 0
+                      return (
+                        <div key={i} className="flex items-center justify-between p-3 hover:bg-neutral-800/50 rounded-xl transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs ${isCredit ? 'bg-purple-900/50 text-purple-300' :
+                              (b.unit_price_cents === 0) ? 'bg-emerald-900/50 text-emerald-300' :
+                                'bg-neutral-800 text-neutral-400'
+                              }`}>
+                              {isCredit ? <Gift size={14} /> : b.unit_price_cents === 0 ? <Gift size={14} /> : <Beer size={14} />}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-neutral-200">
+                                {isCredit ? 'Kiste bereitgestellt' :
+                                  b.unit_price_cents === 0 ? `Freibier: ${b.drinks?.name || 'Getränk'}` :
+                                    `${b.quantity}x ${b.drinks?.name || 'Unbekannt'}`}
+                              </div>
+                              <div className="text-[11px] text-neutral-500">{formatDateTime(b.created_at)}</div>
+                            </div>
+                          </div>
+                          <div className={`text-sm font-mono ${isCredit ? 'text-emerald-400' : 'text-neutral-300'}`}>
+                            {isCredit ? '+' : ''}{euro((b.quantity * b.unit_price_cents) / 100)}
+                          </div>
+                        </div>
+                      )
+                    })
                   )}
                 </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+              </div>
 
-        {/* --- Gesamtübersicht & Einzelbuchungen --- */}
-        <section className="bg-gray-800/60 p-4 rounded-2xl border border-gray-700/70 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-semibold">🧾 Gesamtübersicht</h2>
-            <div className="flex gap-2">
-              {[
-                { label: '7 Tage', value: '7days' },
-                { label: 'Diesen Monat', value: 'month' },
-                { label: 'Alle', value: 'all' },
-              ].map((f) => (
-                <button
-                  key={f.value}
-                  onClick={() => setFilter(f.value as Filter)}
-                  className={`px-2.5 py-1.5 rounded text-xs border transition ${filter === f.value
-                    ? 'bg-green-700 border-green-500 text-white'
-                    : 'bg-gray-800/60 border-gray-600 text-gray-300 hover:text-white'
-                    }`}
-                >
-                  {f.label}
-                </button>
-              ))}
+              {/* PIN */}
+              <div className="rounded-3xl bg-neutral-900 border border-neutral-800 p-6">
+                <h3 className="font-semibold text-neutral-200 mb-4">PIN Verwaltung</h3>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <input type="text" maxLength={6} placeholder="Neuer PIN (6 Ziffern)" value={newPin} onChange={(e) => setNewPin(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-white text-center tracking-widest focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
+                  <button onClick={updatePin} className="px-6 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl font-medium transition-colors">
+                    Ändern
+                  </button>
+                </div>
+                {pinMessage && <p className="text-xs text-amber-500 mt-2 text-center">{pinMessage}</p>}
+              </div>
+
             </div>
           </div>
 
-          {Object.keys(overview).length === 0 ? (
-            <p className="text-gray-400 text-sm">Keine Buchungen im gewählten Zeitraum (ohne Freibier).</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-400 border-b border-gray-700/70">
-                    <th className="text-left py-2 font-medium">Getränk</th>
-                    <th className="text-right py-2 font-medium">Menge</th>
-                    <th className="text-right py-2 font-medium">Summe (€)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(overview).map(([name, d]: any) => (
-                    <tr key={name} className="border-b border-gray-800/60 hover:bg-gray-800/40">
-                      <td className="py-2">{name}</td>
-                      <td className="text-right py-2">{d.qty}</td>
-                      <td className="text-right py-2">{(d.sumCents / 100).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {/* Einzelbuchungen */}
-        <section>
-          <h2 className="text-xl font-semibold mb-2">📋 Einzelbuchungen</h2>
-          <ul className="space-y-2">
-            {filteredBookings.length === 0 && <li className="text-gray-400">Keine Buchungen im gewählten Zeitraum.</li>}
-            {filteredBookings.map((b: any, i: number) => {
-              const isCrateProvision = b.source === 'crate' && (b.quantity || 0) === 0
-
-              let label = `× ${b.quantity}`
-              if (isCrateProvision) label = '🎉 Kiste bereitgestellt'
-              else if (b.source === 'crate') label = `📦 Kiste gekauft (${b.quantity} Fl.)`
-
-              let priceDisplay = ''
-              if (isCrateProvision) {
-                priceDisplay = `${(b.unit_price_cents / 100).toFixed(2)} € (Gutschrift)`
-              } else if (b.source === 'crate') {
-                // Kauf via Terminal -> Kistenpreis * 1 (bzw quantity ist 20, aber unit price ist flaschenpreis? 
-                // CHECK: Im Terminal: quantity=20, unit_price = crate_price / 20. Total = crate_price.
-                // Wait. Terminal logic: rows = [{ quantity: 20, unit_price: perBottle ... }]
-                // So total = quantity * unit_price. Correct.
-                const total = (b.unit_price_cents * b.quantity)
-                priceDisplay = `${(total / 100).toFixed(2)} €`
-              } else if (b.unit_price_cents === 0) {
-                priceDisplay = 'Freibier'
-              } else {
-                priceDisplay = `${((b.unit_price_cents * b.quantity) / 100).toFixed(2)} €`
-              }
-
-              return (
-                <li
-                  key={i}
-                  className="p-3 rounded-2xl border bg-gray-800/70 border-gray-700/70 flex justify-between items-center"
-                >
-                  <div>
-                    <span className="font-medium">{b.drinks?.name || 'Unbekannt'}</span>
-
-                    <span className={`ml-1 ${b.source === 'crate' ? 'text-green-400' : ''}`}>
-                      {label}
-                    </span>
-
-                    {b.via_terminal && <span className="text-blue-400 ml-2 text-sm">🖥️ Terminal</span>}
-
-                    <div className="text-xs text-gray-400">{formatDateTime(b.created_at)}</div>
-                  </div>
-
-                  <div className="text-sm text-gray-300 text-right">
-                    {priceDisplay}
-                  </div>
-                </li>
-              )
-            })}
-
-          </ul>
-        </section>
-
-        {/* --- PIN ändern --- */}
-        <section className="bg-gray-800/70 p-4 rounded-2xl border border-gray-700/70">
-          <h2 className="text-lg font-semibold mb-2">🔐 PIN ändern</h2>
-          <p className="mb-2 text-sm text-gray-400">
-            Aktueller PIN: <strong>{pin || '–'}</strong>
-          </p>
-          <div className="flex gap-2 mb-2">
-            <input
-              type="text"
-              maxLength={6}
-              placeholder="Neuer 6-stelliger PIN"
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value)}
-              className="flex-1 p-2 bg-gray-900 border border-gray-700 rounded-lg"
-            />
-            <button onClick={updatePin} className="bg-green-700 hover:bg-green-800 px-4 rounded-lg">
-              Speichern
-            </button>
-          </div>
-          {pinMessage && <p className="text-yellow-400 text-sm">{pinMessage}</p>}
-        </section>
-
-        <Toasts toasts={toasts} />
+          <Toasts toasts={toasts} />
+        </div>
       </div>
 
       {/* Popups */}
@@ -521,67 +562,65 @@ export default function ProfilePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 rounded-2xl border border-gray-700 shadow-2xl w-[90%] max-w-sm text-center space-y-5"
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl w-full max-w-sm overflow-hidden"
             >
-              {!extraPopup ? (
-                <>
-                  <h3 className="text-xl font-semibold text-white">{popup?.title}</h3>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    placeholder="Betrag in €"
-                    value={amountInput}
-                    onChange={(e) => setAmountInput(e.target.value)}
-                    className="w-full bg-gray-900/80 text-white text-center text-lg p-3 rounded-xl border border-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                  <p className="text-sm text-gray-400">
-                    {popup?.method === 'bar'
-                      ? '💵 Barzahlungen werden vom Admin geprüft und anschließend verbucht.'
-                      : '💳 Nach Bestätigung wirst du zu PayPal weitergeleitet.'}
-                  </p>
-                  <div className="flex justify-center gap-3 pt-2">
-                    <button onClick={() => setPopup(null)} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
-                      Abbrechen
-                    </button>
-                    <button
-                      onClick={handleConfirmPayment}
-                      className="px-4 py-2 bg-green-700 hover:bg-green-800 rounded-lg text-sm font-medium"
-                    >
-                      Bestätigen
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3 className="text-xl font-semibold text-white">Überzahlung erkannt</h3>
-                  <p className="text-gray-300 text-sm leading-relaxed">
-                    Du hast <strong>{extraPopup.amount.toFixed(2)} €</strong> eingegeben.<br />
-                    Deine Schulden betragen <strong>{extraPopup.owes.toFixed(2)} €</strong>.<br />
-                    Der Restbetrag von <strong>{extraPopup.diff.toFixed(2)} €</strong> kann als Guthaben oder Trinkgeld verbucht werden.
-                  </p>
-                  <div className="flex justify-center gap-3 pt-3">
-                    <button
-                      onClick={() => handleExtraChoice('credit')}
-                      className="px-4 py-2 bg-green-700 hover:bg-green-800 rounded-lg text-sm font-medium"
-                    >
-                      💶 Guthaben behalten
-                    </button>
-                    <button
-                      onClick={() => handleExtraChoice('tip')}
-                      className="px-4 py-2 bg-yellow-700 hover:bg-yellow-800 rounded-lg text-sm font-medium"
-                    >
-                      🎁 Trinkgeld geben
-                    </button>
-                  </div>
-                </>
-              )}
+              <div className="p-6 text-center">
+                <div className="w-12 h-12 bg-neutral-800 rounded-full flex items-center justify-center mx-auto mb-4 text-white">
+                  {popup?.method === 'paypal' ? <CreditCard /> : <Wallet />}
+                </div>
+
+                <h3 className="text-xl font-bold text-white mb-2">{extraPopup ? 'Überzahlung' : popup?.title}</h3>
+
+                {!extraPopup ? (
+                  <>
+                    <p className="text-neutral-400 text-sm mb-6">
+                      {popup?.method === 'bar'
+                        ? 'Bitte gib den Betrag an, den du bar in die Kasse gelegt hast.'
+                        : 'Du wirst zu PayPal weitergeleitet.'}
+                    </p>
+
+                    <div className="space-y-4">
+                      <input
+                        type="number"
+                        placeholder="0.00 €"
+                        value={amountInput}
+                        onChange={(e) => setAmountInput(e.target.value)}
+                        className="w-full bg-neutral-950 text-white text-center text-3xl font-bold py-4 rounded-2xl border border-neutral-800 focus:outline-none focus:border-blue-500 transition-colors placeholder:text-neutral-700"
+                      />
+
+                      {/* Quick Amounts */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {[10, 20, 50].map(amt => (
+                          <button key={amt} onClick={() => setAmountInput(amt.toString())} className="py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-sm font-medium transition-colors">
+                            {amt} €
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-3 mt-4">
+                        <button onClick={() => setPopup(null)} className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl font-medium transition-colors">Abbrechen</button>
+                        <button onClick={handleConfirmPayment} className="flex-1 py-3 bg-white text-black hover:bg-gray-200 rounded-xl font-bold transition-colors">Weiter</button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-neutral-400 text-sm mb-6">
+                      Differenz: <strong>{extraPopup.diff.toFixed(2)} €</strong>
+                    </p>
+                    <div className="flex gap-3">
+                      <button onClick={() => handleExtraChoice('credit')} className="flex-1 py-3 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded-xl font-medium">Als Guthaben</button>
+                      <button onClick={() => handleExtraChoice('tip')} className="flex-1 py-3 bg-amber-900/50 text-amber-400 border border-amber-800 rounded-xl font-medium">Als Trinkgeld</button>
+                    </div>
+                  </>
+                )}
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -590,24 +629,6 @@ export default function ProfilePage() {
   )
 }
 
-/* --- Subcomponents --- */
-function StatCard({ icon, label, value, sub, accent }: any) {
-  return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-gray-700/70 bg-gray-800/60 backdrop-blur-sm p-4 shadow-sm`}
-    >
-      <div className={`absolute inset-0 pointer-events-none bg-gradient-to-tr ${accent || 'from-white/5 to-white/0'}`} />
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-xl bg-black/30 border border-white/5 shadow-inner">{icon}</div>
-        <div>
-          <p className="text-xs text-gray-400">{label}</p>
-          <p className="text-xl font-semibold leading-tight">{value}</p>
-          {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function Toasts({ toasts }: any) {
   return (
@@ -619,7 +640,7 @@ function Toasts({ toasts }: any) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className={`px-4 py-2 rounded-lg text-sm shadow-lg backdrop-blur-sm ${t.type === 'error' ? 'bg-red-700/80 text-white' : 'bg-green-700/80 text-white'
+            className={`px-4 py-2 rounded-xl text-sm shadow-lg font-medium ${t.type === 'error' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-black'
               }`}
           >
             {t.text}
