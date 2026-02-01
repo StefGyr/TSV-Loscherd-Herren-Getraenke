@@ -126,7 +126,7 @@ export default function ProfilePage() {
     if (consYTD.length > 0) {
       // Favorit (YTD)
       const map: Record<string, number> = {}
-      consYTD.forEach(c => {
+      consYTD.forEach((c: any) => {
         const name = c.drinks?.name || 'Unbekannt'
         map[name] = (map[name] || 0) + (c.quantity || 0)
       })
@@ -147,7 +147,7 @@ export default function ProfilePage() {
 
     // --- Chart Data Calculation (Last 6 Months) ---
     const now = new Date()
-    const months = []
+    const months: { month: string; iso: string; amount: number; count: number }[] = []
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       months.push({
