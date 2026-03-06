@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import TopNav from '@/components/TopNav'
 import AdminNav from '@/components/AdminNav'
 import { supabase } from '@/lib/supabase-browser'
-import { Edit2, Trash2, Search, User, CreditCard, ChevronUp, ChevronDown, Plus, Save } from 'lucide-react'
+import { Edit2, Trash2, Search, User, CreditCard, ChevronUp, ChevronDown, Plus } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type Profile = {
@@ -66,24 +66,29 @@ export default function UsersPage() {
 
     const fetchData = async () => {
         setLoading(true)
+        try {
+            const [profRes, payRes, drinkRes] = await Promise.all([
+                supabase
+                    .from('profiles')
+                    .select('id, name, first_name, last_name, open_balance_cents')
+                    .order('name', { ascending: true }),
+                supabase
+                    .from('payments')
+                    .select('user_id, amount_cents, verified, created_at')
+                    .eq('verified', true)
+                    .order('created_at', { ascending: false }),
+                supabase.from('drinks').select('id, name, price_cents').order('name'),
+            ])
 
-        const [{ data: profData }, { data: payData }, { data: drinkData }] = await Promise.all([
-            supabase
-                .from('profiles')
-                .select('id, name, first_name, last_name, open_balance_cents')
-                .order('name', { ascending: true }),
-            supabase
-                .from('payments')
-                .select('user_id, amount_cents, verified, created_at')
-                .eq('verified', true)
-                .order('created_at', { ascending: false }),
-            supabase.from('drinks').select('id, name, price_cents').order('name'),
-        ])
-
-        setProfiles(profData || [])
-        setPayments(payData || [])
-        setDrinks(drinkData || [])
-        setLoading(false)
+            setProfiles(profRes.data || [])
+            setPayments(payRes.data || [])
+            setDrinks(drinkRes.data || [])
+        } catch (error) {
+            console.error('Error fetching data:', error)
+            addToast('Fehler beim Laden der Daten', 'error')
+        } finally {
+            setLoading(false)
+        }
     }
 
     useEffect(() => {
