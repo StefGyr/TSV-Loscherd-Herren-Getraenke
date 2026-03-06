@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import TopNav from '@/components/TopNav'
 import AdminNav from '@/components/AdminNav'
 import { supabase } from '@/lib/supabase-browser'
-import { Edit2, Trash2, Search, User, CreditCard } from 'lucide-react'
+import { Edit2, Trash2, Search, User, CreditCard, ChevronUp, ChevronDown, Plus, Save } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type Profile = {
@@ -14,6 +14,8 @@ type Profile = {
     last_name: string | null
     open_balance_cents: number | null
 }
+
+type Drink = { id: number; name: string; price_cents: number }
 
 type Payment = {
     user_id: string
@@ -38,6 +40,14 @@ export default function UsersPage() {
     const [payments, setPayments] = useState<Payment[]>([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState('')
+    const [drinks, setDrinks] = useState<Drink[]>([])
+    const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'balance'; direction: 'asc' | 'desc' }>({
+        key: 'name',
+        direction: 'asc'
+    })
+
+    // 🔹 Manual Add Form
+    const [manualForm, setManualForm] = useState({ drink_id: '', quantity: '1' })
 
     // 🔹 Detail-Ansicht für einen ausgewählten Nutzer
     const [selectedUser, setSelectedUser] = useState<Profile | null>(null)
@@ -57,7 +67,7 @@ export default function UsersPage() {
     const fetchData = async () => {
         setLoading(true)
 
-        const [{ data: profData }, { data: payData }] = await Promise.all([
+        const [{ data: profData }, { data: payData }, { data: drinkData }] = await Promise.all([
             supabase
                 .from('profiles')
                 .select('id, name, first_name, last_name, open_balance_cents')
@@ -67,10 +77,12 @@ export default function UsersPage() {
                 .select('user_id, amount_cents, verified, created_at')
                 .eq('verified', true)
                 .order('created_at', { ascending: false }),
+            supabase.from('drinks').select('id, name, price_cents').order('name'),
         ])
 
         setProfiles(profData || [])
         setPayments(payData || [])
+        setDrinks(drinkData || [])
         setLoading(false)
     }
 
@@ -78,14 +90,28 @@ export default function UsersPage() {
         fetchData()
     }, [])
 
-    // 🔹 Nutzer Filter
-    const filteredProfiles = profiles.filter(p => {
-        const term = searchTerm.toLowerCase()
-        const n = (p.name || '').toLowerCase()
-        const f = (p.first_name || '').toLowerCase()
-        const l = (p.last_name || '').toLowerCase()
-        return n.includes(term) || f.includes(term) || l.includes(term)
-    })
+    // 🔹 Nutzer Filter & Sortierung
+    const filteredProfiles = profiles
+        .filter(p => {
+            const term = searchTerm.toLowerCase()
+            const n = (p.name || '').toLowerCase()
+            const f = (p.first_name || '').toLowerCase()
+            const l = (p.last_name || '').toLowerCase()
+            return n.includes(term) || f.includes(term) || l.includes(term)
+        })
+        .sort((a, b) => {
+            if (sortConfig.key === 'name') {
+                const nameA = getDisplayName(a).toLowerCase()
+                const nameB = getDisplayName(b).toLowerCase()
+                if (nameA < nameB) return sortConfig.direction === 'asc' ? -1 : 1
+                if (nameA > nameB) return sortConfig.direction === 'asc' ? 1 : -1
+                return 0
+            } else {
+                const balA = a.open_balance_cents || 0
+                const balB = b.open_balance_cents || 0
+                return sortConfig.direction === 'asc' ? balA - balB : balB - balA
+            }
+        })
 
     const formatEuro = (cents: number | null | undefined) =>
         ((cents || 0) / 100).toFixed(2) + ' €'
@@ -100,6 +126,13 @@ export default function UsersPage() {
         p.name ||
         `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() ||
         'Unbekannt'
+
+    const handleSort = (key: 'name' | 'balance') => {
+        setSortConfig(prev => ({
+            key,
+            direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+        }))
+    }
 
     // 🔹 Details eines Nutzers laden
     const loadUserDetails = async (profile: Profile) => {
@@ -221,6 +254,90 @@ export default function UsersPage() {
         })
     }
 
+    // 3. Buchung bearbeiten
+    const handleEditConsumption = (c: ConsumptionEntry) => {
+        if (!selectedUser) return
+        const currentQty = c.quantity || 0
+        const input = prompt(`Neue Anzahl für "${c.drinks?.name || 'Unbekannt'}" vom ${new Date(c.created_at).toLocaleString()}:`, currentQty.toString())
+        if (input === null) return
+
+        const newQty = parseInt(input)
+        if (isNaN(newQty) || newQty < 0) return addToast('Ungültige Anzahl', 'error')
+        if (newQty === currentQty) return
+
+        const unitPrice = c.unit_price_cents || 0
+        const diffQty = newQty - currentQty
+        const diffCents = diffQty * unitPrice
+
+        setPopup({
+            title: 'Buchung anpassen',
+            message: `Soll die Anzahl von ${currentQty} auf ${newQty} geändert werden?\nDifferenz: ${formatEuro(diffCents)}`,
+            onConfirm: async () => {
+                // 1. Update Consumption
+                const { error: updErr } = await supabase.from('consumptions').update({ quantity: newQty }).eq('id', c.id)
+                if (updErr) return addToast('Fehler beim Update der Buchung', 'error')
+
+                // 2. Adjust Balance
+                const { error: balErr } = await supabase.rpc('increment_balance', {
+                    user_id_input: selectedUser.id,
+                    amount_input: diffCents
+                })
+                if (balErr) console.error('Balance update error', balErr)
+
+                addToast('Buchung & Saldo angepasst ✅')
+
+                // UI Updates
+                setUserConsumptions(prev => prev.map(x => x.id === c.id ? { ...x, quantity: newQty } : x))
+                const newTotalBal = (selectedUser.open_balance_cents || 0) + diffCents
+                setSelectedUser({ ...selectedUser, open_balance_cents: newTotalBal })
+                setProfiles(prev => prev.map(p => p.id === selectedUser.id ? { ...p, open_balance_cents: newTotalBal } : p))
+                setPopup(null)
+            }
+        })
+    }
+
+    // 4. Manuelle Buchung hinzufügen
+    const handleAddManualConsumption = async () => {
+        if (!selectedUser) return
+        const drinkId = parseInt(manualForm.drink_id)
+        const qty = parseInt(manualForm.quantity)
+
+        if (!drinkId || isNaN(qty) || qty <= 0) {
+            return addToast('Bitte Getränk und gültige Menge wählen', 'error')
+        }
+
+        const drink = drinks.find(d => d.id === drinkId)
+        if (!drink) return
+
+        const totalCents = qty * (drink.price_cents || 0)
+
+        const { error: insErr } = await supabase.from('consumptions').insert({
+            user_id: selectedUser.id,
+            drink_id: drinkId,
+            quantity: qty,
+            unit_price_cents: drink.price_cents,
+            source: 'single'
+        })
+
+        if (insErr) return addToast('Fehler beim Buchen', 'error')
+
+        const { error: balErr } = await supabase.rpc('increment_balance', {
+            user_id_input: selectedUser.id,
+            amount_input: totalCents
+        })
+
+        if (balErr) console.error('Balance update error', balErr)
+
+        addToast(`${qty}× ${drink.name} für ${selectedUser.first_name} gebucht ✅`)
+
+        // UI Updates
+        const newTotalBal = (selectedUser.open_balance_cents || 0) + totalCents
+        setSelectedUser({ ...selectedUser, open_balance_cents: newTotalBal })
+        setProfiles(prev => prev.map(p => p.id === selectedUser.id ? { ...p, open_balance_cents: newTotalBal } : p))
+        setManualForm({ ...manualForm, quantity: '1' })
+        loadUserDetails(selectedUser) // Refresh list
+    }
+
 
     return (
         <>
@@ -261,8 +378,28 @@ export default function UsersPage() {
                             <table className="w-full text-sm text-left">
                                 <thead className="text-gray-400 bg-gray-950/50 sticky top-0 uppercase text-xs">
                                     <tr>
-                                        <th className="px-4 py-3">Name</th>
-                                        <th className="px-4 py-3 text-right">Saldo</th>
+                                        <th
+                                            className="px-4 py-3 cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort('name')}
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                Name
+                                                {sortConfig.key === 'name' && (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                )}
+                                            </div>
+                                        </th>
+                                        <th
+                                            className="px-4 py-3 text-right cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort('balance')}
+                                        >
+                                            <div className="flex items-center justify-end gap-1">
+                                                Saldo
+                                                {sortConfig.key === 'balance' && (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                )}
+                                            </div>
+                                        </th>
                                         <th className="px-4 py-3 text-right">Aktion</th>
                                     </tr>
                                 </thead>
@@ -329,7 +466,35 @@ export default function UsersPage() {
                                         >
                                             <Edit2 size={14} /> Saldo korrigieren
                                         </button>
-                                        {/* Future: Add Payment Button? */}
+                                    </div>
+
+                                    {/* 🆕 Manuelle Buchung */}
+                                    <div className="mt-4 p-4 bg-green-900/10 border border-green-800/30 rounded-xl">
+                                        <h4 className="text-xs font-bold text-green-400 uppercase mb-3 flex items-center gap-2">
+                                            <Plus size={14} /> Manuelle Buchung
+                                        </h4>
+                                        <div className="flex gap-2">
+                                            <select
+                                                className="flex-1 bg-black/40 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:border-green-500"
+                                                value={manualForm.drink_id}
+                                                onChange={e => setManualForm({ ...manualForm, drink_id: e.target.value })}
+                                            >
+                                                <option value="">Getränk wählen...</option>
+                                                {drinks.map(d => <option key={d.id} value={d.id}>{d.name} ({formatEuro(d.price_cents)})</option>)}
+                                            </select>
+                                            <input
+                                                type="number"
+                                                className="w-16 bg-black/40 border border-gray-700 rounded-lg p-2 text-xs text-center"
+                                                value={manualForm.quantity}
+                                                onChange={e => setManualForm({ ...manualForm, quantity: e.target.value })}
+                                            />
+                                            <button
+                                                onClick={handleAddManualConsumption}
+                                                className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition"
+                                            >
+                                                Buchen
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -376,8 +541,8 @@ export default function UsersPage() {
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="text-right">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="text-right mr-2">
                                                                 <div className={`font-mono font-medium ${isFree ? 'text-green-500' : 'text-gray-200'}`}>
                                                                     {formatEuro(total)}
                                                                 </div>
@@ -385,13 +550,22 @@ export default function UsersPage() {
                                                                     {isFree ? 'Kostenlos' : (c.source === 'crate' ? (!isCrateProvision ? 'Kauf' : 'Gutschrift') : 'Berechnet')}
                                                                 </div>
                                                             </div>
-                                                            <button
-                                                                onClick={() => handleDeleteConsumption(c)}
-                                                                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition opacity-0 group-hover:opacity-100"
-                                                                title="Buchung löschen & erstatten"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
+                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                                                                <button
+                                                                    onClick={() => handleEditConsumption(c)}
+                                                                    className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded-lg transition"
+                                                                    title="Anzahl ändern"
+                                                                >
+                                                                    <Edit2 size={14} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteConsumption(c)}
+                                                                    className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition"
+                                                                    title="Buchung löschen & erstatten"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )
