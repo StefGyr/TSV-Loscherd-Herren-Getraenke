@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import TopNav from '@/components/TopNav'
 import AdminNav from '@/components/AdminNav'
 import { supabase } from '@/lib/supabase-browser'
@@ -34,6 +34,20 @@ type ConsumptionEntry = {
         name: string | null
     } | null
 }
+
+const formatEuro = (cents: number | null | undefined) =>
+    ((cents || 0) / 100).toFixed(2) + ' €'
+
+const getRowColor = (value: number) => {
+    if (value < 0) return 'text-green-400'
+    if (value === 0) return 'text-gray-400'
+    return 'text-red-400'
+}
+
+const getDisplayName = (p: Profile) =>
+    p.name ||
+    `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() ||
+    'Unbekannt'
 
 export default function UsersPage() {
     const [profiles, setProfiles] = useState<Profile[]>([])
@@ -96,41 +110,30 @@ export default function UsersPage() {
     }, [])
 
     // 🔹 Nutzer Filter & Sortierung
-    const filteredProfiles = profiles
-        .filter(p => {
-            const term = searchTerm.toLowerCase()
-            const n = (p.name || '').toLowerCase()
-            const f = (p.first_name || '').toLowerCase()
-            const l = (p.last_name || '').toLowerCase()
-            return n.includes(term) || f.includes(term) || l.includes(term)
-        })
-        .sort((a, b) => {
-            if (sortConfig.key === 'name') {
-                const nameA = getDisplayName(a).toLowerCase()
-                const nameB = getDisplayName(b).toLowerCase()
-                if (nameA < nameB) return sortConfig.direction === 'asc' ? -1 : 1
-                if (nameA > nameB) return sortConfig.direction === 'asc' ? 1 : -1
-                return 0
-            } else {
-                const balA = a.open_balance_cents || 0
-                const balB = b.open_balance_cents || 0
-                return sortConfig.direction === 'asc' ? balA - balB : balB - balA
-            }
-        })
+    const filteredProfiles = useMemo(() => {
+        return profiles
+            .filter(p => {
+                const term = searchTerm.toLowerCase()
+                const n = (p.name || '').toLowerCase()
+                const f = (p.first_name || '').toLowerCase()
+                const l = (p.last_name || '').toLowerCase()
+                return n.includes(term) || f.includes(term) || l.includes(term)
+            })
+            .sort((a, b) => {
+                if (sortConfig.key === 'name') {
+                    const nameA = getDisplayName(a).toLowerCase()
+                    const nameB = getDisplayName(b).toLowerCase()
+                    if (nameA < nameB) return sortConfig.direction === 'asc' ? -1 : 1
+                    if (nameA > nameB) return sortConfig.direction === 'asc' ? 1 : -1
+                    return 0
+                } else {
+                    const balA = a.open_balance_cents || 0
+                    const balB = b.open_balance_cents || 0
+                    return sortConfig.direction === 'asc' ? balA - balB : balB - balA
+                }
+            })
+    }, [profiles, searchTerm, sortConfig])
 
-    const formatEuro = (cents: number | null | undefined) =>
-        ((cents || 0) / 100).toFixed(2) + ' €'
-
-    const getRowColor = (value: number) => {
-        if (value < 0) return 'text-green-400'
-        if (value === 0) return 'text-gray-400'
-        return 'text-red-400'
-    }
-
-    const getDisplayName = (p: Profile) =>
-        p.name ||
-        `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() ||
-        'Unbekannt'
 
     const handleSort = (key: 'name' | 'balance') => {
         setSortConfig(prev => ({
