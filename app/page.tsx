@@ -331,7 +331,15 @@ export default function HomePage() {
 
           {/* --- Dashboard Grid --- */}
           <div className="grid grid-cols-2 gap-4">
-            <StatCard icon={<PiggyBank />} accent="from-emerald-500/20 to-emerald-500/5" label="Kontostand" value={euro(balance)} sub="Guthaben" href="/profile" isHighlight={balance < 0} />
+            <StatCard
+              icon={<PiggyBank />}
+              accent={balance > 0 ? "from-rose-500/20 to-rose-500/5" : "from-emerald-500/20 to-emerald-500/5"}
+              label="Kontostand"
+              value={euro(balance)}
+              sub={balance > 0 ? "Schulden" : "Guthaben"}
+              href="/profile"
+              isHighlight={balance > 0}
+            />
             <StatCard icon={<Beer />} accent="from-blue-500/20 to-blue-500/5" label="Monat" value={euro(monthTotal)} sub="Ausgaben" />
             <StatCard icon={<Gift />} accent="from-purple-500/20 to-purple-500/5" label="Freibier-Pool" value={freePool.toString()} sub="Verfügbar" />
             <StatCard icon={<Wallet />} accent="from-amber-500/20 to-amber-500/5" label="Favorit" value={favoriteDrink.split(' ')[0]} sub={favoriteDrink.includes('(') ? favoriteDrink.split('(')[1].replace(')', '') + ' mal' : ''} />

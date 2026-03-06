@@ -558,7 +558,7 @@ export default function UsersPage() {
                                                                     {isFree ? 'Kostenlos' : (c.source === 'crate' ? (!isCrateProvision ? 'Kauf' : 'Gutschrift') : 'Berechnet')}
                                                                 </div>
                                                             </div>
-                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                                                            <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                                                 <button
                                                                     onClick={() => handleEditConsumption(c)}
                                                                     className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded-lg transition"
