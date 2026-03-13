@@ -346,6 +346,39 @@ export default function UsersPage() {
         loadUserDetails(selectedUser) // Refresh list
     }
 
+    // 5. Passwort zurücksetzen (Admin)
+    const handleResetPassword = async (profile: Profile) => {
+        const newPassword = prompt(`Neues Passwort für ${getDisplayName(profile)} eingeben (min. 6 Zeichen):`)
+        if (!newPassword) return
+
+        if (newPassword.length < 6) {
+            return addToast('Das Passwort muss mindestens 6 Zeichen lang sein', 'error')
+        }
+
+        setPopup({
+            title: 'Passwort zurücksetzen',
+            message: `Soll das Passwort für ${getDisplayName(profile)} wirklich auf "${newPassword}" geändert werden?`,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch('/api/admin/reset-password', {
+                        method: 'POST',
+                        body: JSON.stringify({ userId: profile.id, newPassword })
+                    })
+                    const data = await res.json()
+
+                    if (!res.ok) {
+                        addToast(data.error || 'Fehler beim Zurücksetzen', 'error')
+                    } else {
+                        addToast('Passwort erfolgreich geändert ✅')
+                    }
+                } catch (err) {
+                    addToast('Netzwerkfehler beim Zurücksetzen', 'error')
+                }
+                setPopup(null)
+            }
+        })
+    }
+
 
     return (
         <>
@@ -473,6 +506,12 @@ export default function UsersPage() {
                                             className="flex-1 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg text-sm font-medium border border-gray-700 flex justify-center gap-2 items-center"
                                         >
                                             <Edit2 size={14} /> Saldo korrigieren
+                                        </button>
+                                        <button
+                                            onClick={() => handleResetPassword(selectedUser)}
+                                            className="bg-red-900/20 hover:bg-red-900/40 text-red-400 py-2 px-4 rounded-lg text-sm font-medium border border-red-900/30 flex justify-center gap-2 items-center transition"
+                                        >
+                                            PW Reset
                                         </button>
                                     </div>
 

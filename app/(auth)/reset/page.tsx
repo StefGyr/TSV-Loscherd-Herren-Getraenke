@@ -18,7 +18,7 @@ export default function ResetPage() {
     setMessage('')
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${location.origin}/login`,
+      redirectTo: `${location.origin}/update-password`,
     })
 
     if (error) setMessage('Fehler beim Senden der E-Mail.')
