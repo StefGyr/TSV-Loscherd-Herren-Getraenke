@@ -105,7 +105,8 @@ function parseSpielplan(text: string) {
             }
 
             // Final filters: Only include home games at Sportanlage Lonnerstadt
-            const isHomeGame = location.toLowerCase().includes('lonnerstadt');
+            // Include if location is empty (user request) or includes "lonnerstadt"
+            const isHomeGame = location === '' || location.toLowerCase().includes('lonnerstadt');
 
             if ((team_home || team_guest) && isHomeGame) {
                 matches.push({
