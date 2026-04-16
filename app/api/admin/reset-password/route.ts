@@ -27,9 +27,15 @@ export async function POST(req: Request) {
         }
 
         // 2. Perform Reset using Service Role Key
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+        if (!serviceRoleKey) {
+            console.error('SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.')
+            return NextResponse.json({ error: 'Server-Fehler: Konfiguration fehlt (Service Role Key)' }, { status: 500 })
+        }
+
         const supabaseAdmin = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            serviceRoleKey,
             {
                 auth: {
                     autoRefreshToken: false,

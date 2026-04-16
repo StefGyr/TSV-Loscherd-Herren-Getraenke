@@ -14,7 +14,16 @@ export default function UpdatePasswordPage() {
     const router = useRouter()
 
     useEffect(() => {
-        import('@/lib/supabase-browser').then((m) => setSupabase(m.supabase))
+        import('@/lib/supabase-browser').then(async (m) => {
+            const sb = m.supabase
+            setSupabase(sb)
+
+            // Check if user is authenticated (recovery session)
+            const { data: { session } } = await sb.auth.getSession()
+            if (!session) {
+                setError('Keine aktive Sitzung gefunden. Bitte verwende den Link aus der E-Mail.')
+            }
+        })
     }, [])
 
     const handleUpdate = async (e: React.FormEvent) => {

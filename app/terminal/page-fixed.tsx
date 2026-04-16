@@ -242,33 +242,33 @@ export default function TopTerminalPage() {
   }, [])
 
   const loadFavoriteDrink = useCallback(async (uid: string) => {
-  const { data, error } = await supabase
-    .from('consumptions')
-    .select('quantity, drinks(name)')
-    .eq('user_id', uid)
+    const { data, error } = await supabase
+      .from('consumptions')
+      .select('quantity, drinks(name)')
+      .eq('user_id', uid)
 
-  if (error) {
-    console.error('Fehler Fav:', error)
-    return
-  }
-  if (!data?.length) {
-    setFavoriteDrink('—')
-    return
-  }
+    if (error) {
+      console.error('Fehler Fav:', error)
+      return
+    }
+    if (!data?.length) {
+      setFavoriteDrink('—')
+      return
+    }
 
-  const count: Record<string, number> = {} // ✅ korrekt initialisiert
+    const count: Record<string, number> = {} // ✅ korrekt initialisiert
 
-  for (const r of data) {
-    const name =
-      (Array.isArray(r.drinks)
-        ? r.drinks[0]?.name
-        : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
-    count[name] = (count[name] || 0) + (r.quantity || 0)
-  }
+    for (const r of data) {
+      const name =
+        (Array.isArray(r.drinks)
+          ? r.drinks[0]?.name
+          : (r.drinks as { name?: string } | null)?.name) || 'Unbekannt'
+      count[name] = (count[name] || 0) + (r.quantity || 0)
+    }
 
-  const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
-  setFavoriteDrink(fav ? fav[0] : '—')
-}, [])
+    const fav = Object.entries(count).sort((a, b) => b[1] - a[1])[0]
+    setFavoriteDrink(fav ? fav[0] : '—')
+  }, [])
 
 
   // -----------------------------
@@ -568,11 +568,11 @@ export default function TopTerminalPage() {
                   ))}
                 </div>
                 <div className="grid grid-cols-3 gap-3 mb-6">
-                  {[1,2,3,4,5,6,7,8,9].map(n => (
-                    <button key={n} onClick={() => setPin(p => (p + n).slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+                    <button key={n} onClick={() => setPin(p => (p + n).slice(0, 6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
                   ))}
                   <div />
-                  <button onClick={() => setPin(p => (p + '0').slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
+                  <button onClick={() => setPin(p => (p + '0').slice(0, 6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
                   <div />
                 </div>
                 <button onClick={() => setPin('')} className="px-6 py-2 bg-neutral-800 rounded-lg">Eingabe löschen</button>
@@ -588,16 +588,47 @@ export default function TopTerminalPage() {
                 <div className="space-y-5">
                   {Object.entries(groupedByDay).map(([day, entries]) => (
                     <div key={day}>
-                      <h3 className="text-lg font-semibold text-green-400 mb-2 border-b border-neutral-800 pb-1">{day}</h3>
+                      <h3 className="text-lg font-semibold text-green-400 mb-2 border-b border-neutral-800 pb-1 flex items-center justify-between">
+                        {day}
+                      </h3>
                       {(entries as any[]).map((e) => (
-                        <div key={e.id} className="border border-neutral-800 bg-neutral-900/60 rounded-lg p-3 mb-2">
-                          <div className="flex justify-between">
-                            <span className="text-green-400 font-semibold">Platz {e.field}</span>
-                            <span className="text-sm text-neutral-400">{e.time} Uhr</span>
+                        <div key={e.id} className="relative mb-3 group">
+                          <div className={`absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-12 rounded-full ${e.field === '1' ? 'bg-emerald-500' :
+                              e.field === '2' ? 'bg-blue-500' : 'bg-neutral-600'
+                            }`} />
+                          <div className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-3 pl-5 hover:bg-neutral-900/80 transition shadow-sm">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className={`text-[10px] font-black uppercase tracking-wider ${e.field === '1' ? 'text-emerald-400' :
+                                  e.field === '2' ? 'text-blue-400' : 'text-neutral-500'
+                                }`}>
+                                Platz {e.field || '?'}
+                              </span>
+                              <span className="text-[10px] font-bold text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded uppercase">
+                                {e.section}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="text-sm font-bold text-white leading-tight flex-1">
+                                {e.team_home}
+                              </div>
+                              <div className="text-[10px] font-black text-neutral-600 italic">VS</div>
+                              <div className="text-sm font-bold text-white leading-tight flex-1 text-right">
+                                {e.team_guest}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/40">
+                              <div className="text-[10px] text-neutral-500 flex items-center gap-1">
+                                <span className="truncate max-w-[120px]">{e.time} Uhr • {e.competition}</span>
+                              </div>
+                              {e.location && (
+                                <div className="text-[10px] text-neutral-600 italic">
+                                  📍 {e.location.split(',')[0]}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-sm text-neutral-200 font-medium">{e.team_home} vs. {e.team_guest}</div>
-                          <div className="text-xs text-neutral-400">{e.competition} • {e.section}</div>
-                          {e.location && <div className="text-xs text-neutral-500 mt-1">📍 {e.location}</div>}
                         </div>
                       ))}
                     </div>
@@ -661,7 +692,7 @@ export default function TopTerminalPage() {
                 <button
                   disabled={totalQty === 0}
                   onClick={openCheckout}
-                  className={`px-5 py-3 rounded-xl font-semibold ${totalQty>0 ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'}`}
+                  className={`px-5 py-3 rounded-xl font-semibold ${totalQty > 0 ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'}`}
                 >
                   📤 Jetzt gesamt verbuchen
                 </button>
