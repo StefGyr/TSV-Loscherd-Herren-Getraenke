@@ -104,8 +104,10 @@ function parseSpielplan(text: string) {
                 }
             }
 
-            // Final filters
-            if (team_home || team_guest) {
+            // Final filters: Only include home games at Sportanlage Lonnerstadt
+            const isHomeGame = location.toLowerCase().includes('lonnerstadt');
+
+            if ((team_home || team_guest) && isHomeGame) {
                 matches.push({
                     section: currentSection,
                     competition,
