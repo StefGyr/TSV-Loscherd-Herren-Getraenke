@@ -9,7 +9,7 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getSession()
 
   const { pathname } = req.nextUrl
-  const publicPaths = ['/login', '/register', '/reset', '/terminal']
+  const publicPaths = ['/login', '/register', '/reset', '/terminal', '/platzbelegung']
   const isPublic = publicPaths.some((path) => pathname.startsWith(path))
 
   // Nicht eingeloggt → redirect zu Login
