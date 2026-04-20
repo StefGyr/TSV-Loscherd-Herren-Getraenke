@@ -49,13 +49,13 @@ export default function PlatzbelegungShare({ entries }: { entries: Entry[] }) {
                             {dayEntries.map((e) => (
                                 <div key={e.id} className="relative group">
                                     {/* Field Badge */}
-                                    <div className={`absolute -left-2 -top-2 z-10 px-4 py-1.5 rounded-full flex items-center justify-center font-black text-[10px] uppercase tracking-widest shadow-2xl border border-white/20 backdrop-blur-md ${e.field === '1' ? 'bg-emerald-600/90 text-white' :
+                                    <div className={`absolute left-3 -top-3 z-10 px-4 py-1.5 rounded-full flex items-center justify-center font-black text-[10px] uppercase tracking-widest shadow-2xl border border-white/20 backdrop-blur-md ${e.field === '1' ? 'bg-emerald-600/90 text-white' :
                                         e.field === '2' ? 'bg-blue-600/90 text-white' : 'bg-neutral-800/90 text-white'
                                         }`}>
                                         {e.field ? `Platz - ${e.field}` : 'Auswärts'}
                                     </div>
 
-                                    <div className="bg-neutral-900/80 backdrop-blur border border-neutral-800 rounded-2xl p-4 pl-8 group-hover:border-neutral-700 transition shadow-lg">
+                                    <div className="bg-neutral-900/80 backdrop-blur border border-neutral-800 rounded-2xl p-4 pt-6 group-hover:border-neutral-700 transition shadow-lg">
                                         <div className="flex justify-between items-start mb-2">
                                             <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-400 uppercase">
                                                 <Clock size={12} className="text-green-500" />
@@ -67,7 +67,7 @@ export default function PlatzbelegungShare({ entries }: { entries: Entry[] }) {
                                         </div>
 
                                         <div className="flex items-center gap-2 mb-3">
-                                            <div className="flex-1 text-base font-bold text-white leading-tight">
+                                            <div className="flex-1 text-base font-bold text-white text-left leading-tight">
                                                 {e.team_home}
                                             </div>
                                             <div className="text-xs font-black text-neutral-600 italic">VS</div>
