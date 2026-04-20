@@ -32,7 +32,7 @@ function debounce<F extends (...args: any[]) => void>(fn: F, delay = 300) {
 // Component
 // -----------------------------
 export default function TopTerminalPage() {
-    // 🔁 Automatischer Reload alle 10 Minuten (zum Testen 30 Sekunden)
+  // 🔁 Automatischer Reload alle 10 Minuten (zum Testen 30 Sekunden)
   useEffect(() => {
     console.log('✅ Auto-Reload-Timer gestartet')
     const timer = setInterval(() => {
@@ -299,23 +299,23 @@ export default function TopTerminalPage() {
     }
 
     // 💰 Zu zahlender Betrag berechnen (abhängig von Freibier-Entscheidung)
-let amountToAdd = 0
-if (useFreeBeerChoice === 'no') {
-  // Nutzer will alles bezahlen → komplette Summe berechnen
-  amountToAdd = checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0)
-} else {
-  // Nur zahlpflichtiger Teil (Rest nach Freibier)
-  amountToAdd = checkoutTotals.payCents
-}
+    let amountToAdd = 0
+    if (useFreeBeerChoice === 'no') {
+      // Nutzer will alles bezahlen → komplette Summe berechnen
+      amountToAdd = checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0)
+    } else {
+      // Nur zahlpflichtiger Teil (Rest nach Freibier)
+      amountToAdd = checkoutTotals.payCents
+    }
 
-// Kontostand erhöhen, wenn ein Betrag anfällt
-if (amountToAdd > 0) {
-  await supabase.rpc('increment_balance', {
-    user_id_input: user.id,
-    amount_input: amountToAdd
-  })
-  setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + amountToAdd } : prev)
-}
+    // Kontostand erhöhen, wenn ein Betrag anfällt
+    if (amountToAdd > 0) {
+      await supabase.rpc('increment_balance', {
+        user_id_input: user.id,
+        amount_input: amountToAdd
+      })
+      setUser(prev => prev ? { ...prev, open_balance_cents: (prev.open_balance_cents ?? 0) + amountToAdd } : prev)
+    }
 
 
     // Einfügen der Buchungen via SECURITY DEFINER RPC
@@ -348,15 +348,15 @@ if (amountToAdd > 0) {
   const buyCrateNow = useCallback(async () => {
     if (!user || !selectedDrink) return
 
-   // 👇 Kistenpreis gleichmäßig auf Flaschen verteilen
-const perBottle = Math.round(selectedDrink.crate_price_cents / BOTTLES_PER_CRATE)
-const rows = [{
-  user_id: user.id,
-  drink_id: selectedDrink.id,
-  quantity: BOTTLES_PER_CRATE,
-  unit_price_cents: perBottle,
-  source: 'crate' as const,
-}]
+    // 👇 Kistenpreis gleichmäßig auf Flaschen verteilen
+    const perBottle = Math.round(selectedDrink.crate_price_cents / BOTTLES_PER_CRATE)
+    const rows = [{
+      user_id: user.id,
+      drink_id: selectedDrink.id,
+      quantity: BOTTLES_PER_CRATE,
+      unit_price_cents: perBottle,
+      source: 'crate' as const,
+    }]
 
     await supabase.rpc('terminal_insert_consumptions', { _rows: rows as any })
 
@@ -419,11 +419,11 @@ const rows = [{
                   ))}
                 </div>
                 <div className="grid grid-cols-3 gap-3 mb-6">
-                  {[1,2,3,4,5,6,7,8,9].map(n => (
-                    <button key={n} onClick={() => setPin(p => (p + n).slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+                    <button key={n} onClick={() => setPin(p => (p + n).slice(0, 6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">{n}</button>
                   ))}
                   <div />
-                  <button onClick={() => setPin(p => (p + '0').slice(0,6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
+                  <button onClick={() => setPin(p => (p + '0').slice(0, 6))} className="h-16 text-2xl bg-neutral-800 hover:bg-neutral-700 rounded-xl">0</button>
                   <div />
                 </div>
                 <button onClick={() => setPin('')} className="px-6 py-2 bg-neutral-800 rounded-lg">Eingabe löschen</button>
@@ -447,7 +447,7 @@ const rows = [{
                             <span className="text-sm text-neutral-400">{e.time} Uhr</span>
                           </div>
                           <div className="text-sm text-neutral-200 font-medium">{e.team_home} vs. {e.team_guest}</div>
-                          <div className="text-xs text-neutral-400">{e.competition} • {e.section}</div>
+                          <div className="text-xs text-neutral-400">{e.competition?.replace(/^ME/, '')} • {e.section}</div>
                           {e.location && <div className="text-xs text-neutral-500 mt-1">📍 {e.location}</div>}
                         </div>
                       ))}
@@ -511,7 +511,7 @@ const rows = [{
                 <button
                   disabled={totalQty === 0}
                   onClick={openCheckout}
-                  className={`px-5 py-3 rounded-xl font-semibold ${totalQty>0 ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'}`}
+                  className={`px-5 py-3 rounded-xl font-semibold ${totalQty > 0 ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'}`}
                 >
                   📤 Jetzt gesamt verbuchen
                 </button>
@@ -558,36 +558,36 @@ const rows = [{
             <motion.div className="bg-neutral-900 text-white w-[min(720px,95vw)] rounded-2xl p-6 shadow-2xl">
               <h3 className="text-xl font-semibold mb-4">Buchungsübersicht</h3>
               <div className="space-y-2 max-h-[50vh] overflow-auto pr-2">
-  {checkoutLines.map((ln) => {
-    const isNormalPay = useFreeBeerChoice === 'no'
-    const showFree = isNormalPay ? 0 : ln.freeQty
-    const showPay = isNormalPay ? ln.qty : ln.payQty
-    const showTotal = showPay * ln.unitCents
-    return (
-      <div key={ln.drinkId} className="flex flex-wrap items-center justify-between border-b border-neutral-800 py-2">
-        <div className="font-medium truncate">{ln.name}</div>
-        <div className="text-sm text-neutral-300">Menge: <b>{ln.qty}</b></div>
-        <div className="text-sm text-emerald-400">Frei: {showFree}</div>
-        <div className="text-sm text-sky-300">
-          Zahlend: {showPay} × {euro(ln.unitCents)} = <b>{euro(showTotal)}</b>
-        </div>
-      </div>
-    )
-  })}
-</div>
+                {checkoutLines.map((ln) => {
+                  const isNormalPay = useFreeBeerChoice === 'no'
+                  const showFree = isNormalPay ? 0 : ln.freeQty
+                  const showPay = isNormalPay ? ln.qty : ln.payQty
+                  const showTotal = showPay * ln.unitCents
+                  return (
+                    <div key={ln.drinkId} className="flex flex-wrap items-center justify-between border-b border-neutral-800 py-2">
+                      <div className="font-medium truncate">{ln.name}</div>
+                      <div className="text-sm text-neutral-300">Menge: <b>{ln.qty}</b></div>
+                      <div className="text-sm text-emerald-400">Frei: {showFree}</div>
+                      <div className="text-sm text-sky-300">
+                        Zahlend: {showPay} × {euro(ln.unitCents)} = <b>{euro(showTotal)}</b>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
 
-<div className="mt-4 p-3 rounded-lg bg-neutral-800 flex flex-wrap gap-6 text-sm">
-  <div>Freibier genutzt: <b>{useFreeBeerChoice === 'no' ? 0 : checkoutTotals.freeUsed}</b></div>
-  <div>Verbleibendes Freibier: <b>{useFreeBeerChoice === 'no' ? freePool : checkoutTotals.remainingPool}</b></div>
-  <div>
-    Gesamtsumme:{' '}
-    <b>
-      {useFreeBeerChoice === 'no'
-        ? euro(checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0))
-        : euro(checkoutTotals.payCents)}
-    </b>
-  </div>
-</div>
+              <div className="mt-4 p-3 rounded-lg bg-neutral-800 flex flex-wrap gap-6 text-sm">
+                <div>Freibier genutzt: <b>{useFreeBeerChoice === 'no' ? 0 : checkoutTotals.freeUsed}</b></div>
+                <div>Verbleibendes Freibier: <b>{useFreeBeerChoice === 'no' ? freePool : checkoutTotals.remainingPool}</b></div>
+                <div>
+                  Gesamtsumme:{' '}
+                  <b>
+                    {useFreeBeerChoice === 'no'
+                      ? euro(checkoutLines.reduce((sum, l) => sum + l.qty * l.unitCents, 0))
+                      : euro(checkoutTotals.payCents)}
+                  </b>
+                </div>
+              </div>
 
               {checkoutTotals.freeUsed < checkoutTotals.totalQty && checkoutTotals.freeUsed > 0 && (
                 <div className="mt-3 text-amber-400 text-sm">

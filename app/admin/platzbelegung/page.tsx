@@ -199,7 +199,7 @@ export default function PlatzbelegungAdmin() {
             <button onClick={() => openEditModal()} className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm flex items-center gap-2 font-bold shadow-lg shadow-green-900/20 transition">
               <Plus size={16} /> Neu hinzufügen
             </button>
-            <a href="/admin/platzbelegung/overview" className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-sm flex items-center gap-2 transition">
+            <a href="/platzbelegung" className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-sm flex items-center gap-2 transition">
               <TableIcon size={16} /> Übersicht & Teilen
             </a>
           </div>
@@ -249,8 +249,8 @@ export default function PlatzbelegungAdmin() {
         {/* Status Message */}
         {message && (
           <div className={`mb-8 p-4 rounded-xl flex items-center gap-3 border shadow-lg ${message.type === 'success' ? 'bg-emerald-950/30 border-emerald-800 text-emerald-400' :
-              message.type === 'error' ? 'bg-rose-950/30 border-rose-800 text-rose-400' :
-                'bg-blue-950/30 border-blue-800 text-blue-400'
+            message.type === 'error' ? 'bg-rose-950/30 border-rose-800 text-rose-400' :
+              'bg-blue-950/30 border-blue-800 text-blue-400'
             }`}>
             {message.type === 'success' ? <CheckCircle2 size={20} /> :
               message.type === 'error' ? <AlertCircle size={20} /> : <Loader2 size={20} className={parsing ? 'animate-spin' : ''} />}
@@ -481,7 +481,7 @@ function Table({ entries, readOnly = false, onEdit, onDelete }: { entries: any[]
             </td>
             <td className="px-6 py-4">
               <div className="inline-block px-1.5 py-0.5 bg-neutral-800 rounded text-[9px] font-black uppercase text-neutral-400 mb-1 leading-none">{r.section}</div>
-              <div className="text-xs text-neutral-500 truncate max-w-[150px]">{r.competition}</div>
+              <div className="text-xs text-neutral-500 truncate max-w-[150px]">{r.competition?.replace(/^ME/, '')}</div>
             </td>
             <td className="px-6 py-4">
               <div className={`text-xs font-black uppercase tracking-wider ${r.field === '1' ? 'text-emerald-400' : r.field === '2' ? 'text-blue-400' : 'text-neutral-500'}`}>

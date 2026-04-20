@@ -50,7 +50,7 @@ export default function PlatzbelegungShare({ entries }: { entries: Entry[] }) {
                                 <div key={e.id} className="relative group">
                                     {/* Field Badge */}
                                     <div className={`absolute -left-2 -top-2 z-10 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-lg ${e.field === '1' ? 'bg-emerald-600 text-white' :
-                                            e.field === '2' ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-white'
+                                        e.field === '2' ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-white'
                                         }`}>
                                         {e.field || '?'}
                                     </div>
@@ -79,7 +79,7 @@ export default function PlatzbelegungShare({ entries }: { entries: Entry[] }) {
                                         <div className="flex items-center justify-between pt-2 border-t border-neutral-800/50">
                                             <div className="flex items-center gap-1 text-[10px] text-neutral-500">
                                                 <Trophy size={10} />
-                                                <span className="truncate max-w-[120px]">{e.competition}</span>
+                                                <span className="truncate max-w-[120px]">{e.competition?.replace(/^ME/, '')}</span>
                                             </div>
                                             <div className="flex items-center gap-1 text-[10px] text-neutral-500">
                                                 <MapPin size={10} />
