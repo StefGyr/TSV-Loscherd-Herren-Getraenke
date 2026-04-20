@@ -81,21 +81,34 @@ export default function UsersPage() {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const [profRes, payRes, drinkRes] = await Promise.all([
-                supabase
-                    .from('profiles')
-                    .select('id, name, first_name, last_name, open_balance_cents')
-                    .order('name', { ascending: true }),
-                supabase
-                    .from('payments')
-                    .select('user_id, amount_cents, verified, created_at')
-                    .eq('verified', true)
-                    .order('created_at', { ascending: false }),
+            // Helper for fetching ALL rows from a table (pagination)
+            const fetchAll = async (table: string, select = '*') => {
+                let allData: any[] = []
+                let page = 0
+                const pageSize = 1000
+                while (true) {
+                    const { data, error } = await supabase
+                        .from(table)
+                        .select(select)
+                        .order('created_at', { ascending: true })
+                        .range(page * pageSize, (page + 1) * pageSize - 1)
+                    if (error) throw error
+                    if (!data || data.length === 0) break
+                    allData = [...allData, ...data]
+                    if (data.length < pageSize) break
+                    page++
+                }
+                return allData
+            }
+
+            // Note: payments is not used in the UI, so we stop fetching it here to save resources.
+            // If you need it later, use fetchAll('payments')
+            const [profilesData, drinkRes] = await Promise.all([
+                fetchAll('profiles', 'id, name, first_name, last_name, open_balance_cents'),
                 supabase.from('drinks').select('id, name, price_cents').order('name'),
             ])
 
-            setProfiles(profRes.data || [])
-            setPayments(payRes.data || [])
+            setProfiles(profilesData || [])
             setDrinks(drinkRes.data || [])
         } catch (error) {
             console.error('Error fetching data:', error)
