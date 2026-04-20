@@ -49,10 +49,10 @@ export default function PlatzbelegungShare({ entries }: { entries: Entry[] }) {
                             {dayEntries.map((e) => (
                                 <div key={e.id} className="relative group">
                                     {/* Field Badge */}
-                                    <div className={`absolute -left-2 -top-2 z-10 px-3 py-1 rounded-lg flex items-center justify-center font-black text-[10px] uppercase tracking-tighter shadow-xl border border-white/20 ${e.field === '1' ? 'bg-emerald-600 text-white' :
-                                        e.field === '2' ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-white'
+                                    <div className={`absolute -left-2 -top-2 z-10 px-4 py-1.5 rounded-full flex items-center justify-center font-black text-[10px] uppercase tracking-widest shadow-2xl border border-white/20 backdrop-blur-md ${e.field === '1' ? 'bg-emerald-600/90 text-white' :
+                                        e.field === '2' ? 'bg-blue-600/90 text-white' : 'bg-neutral-800/90 text-white'
                                         }`}>
-                                        {e.field ? `Platz ${e.field}` : 'Auswärts'}
+                                        {e.field ? `Platz - ${e.field}` : 'Auswärts'}
                                     </div>
 
                                     <div className="bg-neutral-900/80 backdrop-blur border border-neutral-800 rounded-2xl p-4 pl-8 group-hover:border-neutral-700 transition shadow-lg">

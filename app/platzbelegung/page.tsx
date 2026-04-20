@@ -60,17 +60,7 @@ export default function PublicPlatzbelegungPage() {
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white pb-20">
-            {/* Simple Public Header */}
-            <div className="fixed top-0 left-0 right-0 z-50 bg-neutral-950/80 backdrop-blur-md border-b border-neutral-900 px-6 py-4">
-                <div className="max-w-4xl mx-auto flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center font-bold text-white text-xs">TSV</div>
-                        <span className="font-bold tracking-tight">Platzbelegung</span>
-                    </div>
-                </div>
-            </div>
-
-            <div className="max-w-4xl mx-auto pt-24 px-6 text-center">
+            <div className="max-w-4xl mx-auto pt-12 px-6 text-center">
                 <div className="flex items-center justify-between mb-8">
                     <div className="w-10"></div> {/* Spacer */}
                     <h1 className="text-xl font-bold text-neutral-400 uppercase tracking-widest">Wochenübersicht</h1>

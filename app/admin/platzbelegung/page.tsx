@@ -484,8 +484,8 @@ function Table({ entries, readOnly = false, onEdit, onDelete }: { entries: any[]
               <div className="text-xs text-neutral-500 truncate max-w-[150px]">{r.competition?.replace(/^ME/, '')}</div>
             </td>
             <td className="px-6 py-4">
-              <div className={`text-xs font-black uppercase tracking-wider ${r.field === '1' ? 'text-emerald-400' : r.field === '2' ? 'text-blue-400' : 'text-neutral-500'}`}>
-                {r.field ? `Platz ${r.field}` : 'Auswärts'}
+              <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${r.field === '1' ? 'bg-emerald-950/30 border-emerald-800 text-emerald-400' : r.field === '2' ? 'bg-blue-950/30 border-blue-800 text-blue-400' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}>
+                {r.field ? `Platz - ${r.field}` : 'Auswärts'}
               </div>
               <div className="text-[10px] text-neutral-600 truncate max-w-[150px] italic">{r.location?.split(',')[0]}</div>
             </td>
