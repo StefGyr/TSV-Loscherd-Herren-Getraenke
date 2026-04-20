@@ -443,7 +443,7 @@ export default function TopTerminalPage() {
                       {(entries as any[]).map((e) => (
                         <div key={e.id} className="border border-neutral-800 bg-neutral-900/60 rounded-lg p-3 mb-2">
                           <div className="flex justify-between">
-                            <span className="text-green-400 font-semibold">Platz {e.field}</span>
+                            <span className="text-green-400 font-bold uppercase text-xs tracking-wider">Platz {e.field}</span>
                             <span className="text-sm text-neutral-400">{e.time} Uhr</span>
                           </div>
                           <div className="text-sm text-neutral-200 font-medium">{e.team_home} vs. {e.team_guest}</div>
