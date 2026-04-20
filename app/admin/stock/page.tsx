@@ -48,44 +48,35 @@ export default function AdminStockPage() {
 
     const fetchData = async () => {
         setLoading(true)
-        const [d, recentPurchases, f, allPurchases, allConsumptions] = await Promise.all([
-            supabase.from('drinks').select('id, name').order('name'),
-            supabase
-                .from('purchases')
-                .select('id, drink_id, quantity, crate_price_cents, created_at, drinks(name)')
-                .order('created_at', { ascending: false })
-                .limit(MAX_RECENT_LOGS),
-            supabase.from('free_pool').select('quantity_remaining').eq('id', 1).maybeSingle(),
-            // Fetch for stats (minimal fields)
-            supabase.from('purchases').select('drink_id, quantity'),
-            supabase.from('consumptions').select('drink_id, quantity')
-        ])
 
-        setDrinks(d.data || [])
-        setPurchases((recentPurchases.data as any[]) || [])
-        setFreePool(f.data?.quantity_remaining || 0)
+        try {
+            const [d, recentPurchases, f, summary] = await Promise.all([
+                supabase.from('drinks').select('id, name').order('name'),
+                supabase
+                    .from('purchases')
+                    .select('id, drink_id, quantity, crate_price_cents, created_at, drinks(name)')
+                    .order('created_at', { ascending: false })
+                    .limit(MAX_RECENT_LOGS),
+                supabase.from('free_pool').select('quantity_remaining').eq('id', 1).maybeSingle(),
+                supabase.from('v_inventory_summary').select('*')
+            ])
 
-        // Calculate Stock
-        const stocks = new Map<number, number>()
-        // Initialize
-        d.data?.forEach(drink => stocks.set(drink.id, 0))
+            setDrinks(d.data || [])
+            setPurchases((recentPurchases.data as any[]) || [])
+            setFreePool(f.data?.quantity_remaining || 0)
 
-        // Add Purchases
-        allPurchases.data?.forEach(p => {
-            const current = stocks.get(p.drink_id) || 0
-            stocks.set(p.drink_id, current + (p.quantity * BOTTLES_PER_CRATE))
-        })
-
-        // Subtract Consumptions
-        allConsumptions.data?.forEach(c => {
-            if (c.drink_id) {
-                const current = stocks.get(c.drink_id) || 0
-                stocks.set(c.drink_id, current - c.quantity)
-            }
-        })
-
-        setStockMap(stocks)
-        setLoading(false)
+            // Map stock from the view
+            const stocks = new Map<number, number>()
+            summary.data?.forEach(row => {
+                stocks.set(row.id, row.current_stock)
+            })
+            setStockMap(stocks)
+        } catch (err) {
+            console.error('Error fetching data:', err)
+            addToast('Fehler beim Laden der Bestandsdaten', 'error')
+        } finally {
+            setLoading(false)
+        }
     }
 
     useEffect(() => {

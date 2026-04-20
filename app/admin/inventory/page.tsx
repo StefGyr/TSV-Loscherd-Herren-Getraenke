@@ -65,21 +65,59 @@ export default function InventoryRevenuePage() {
 
   const loadData = async () => {
     setLoading(true)
-    const [d, c, pu, pa, pr] = await Promise.all([
-      supabase.from('drinks').select('*').order('name'),
-      supabase.from('consumptions').select('id, drink_id, quantity, unit_price_cents, source, created_at, via_terminal'),
-      supabase.from('purchases').select('*'),
-      supabase.from('payments').select('*').eq('verified', true),
-      supabase.from('profiles').select('id, first_name, last_name, open_balance_cents').order('last_name')
-    ])
+    const { from, to } = getDateRange()
 
-    if (d.data) setDrinks(d.data)
-    if (c.data) setFullConsumptions(c.data)
-    if (pu.data) setFullPurchases(pu.data)
-    if (pa.data) setPayments(pa.data)
-    if (pr.data) setProfiles(pr.data)
-    setLoading(false)
+    // Helper for fetching ALL rows from a table (pagination) with optional date filter
+    const fetchRange = async (table: string, dateCol: string, fromDt: Date, toDt: Date, select = '*') => {
+      let allData: any[] = []
+      let page = 0
+      const pageSize = 1000
+
+      while (true) {
+        const { data, error } = await supabase
+          .from(table)
+          .select(select)
+          .gte(dateCol, fromDt.toISOString())
+          .lte(dateCol, toDt.toISOString())
+          .order(dateCol, { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (error) throw error
+        if (!data || data.length === 0) break
+
+        allData = [...allData, ...data]
+        if (data.length < pageSize) break
+        page++
+      }
+      return allData
+    }
+
+    try {
+      const [d, c, pu, pa, pr] = await Promise.all([
+        supabase.from('drinks').select('*').order('name'),
+        fetchRange('consumptions', 'created_at', from, to, 'id, drink_id, quantity, unit_price_cents, source, created_at, via_terminal'),
+        fetchRange('purchases', 'created_at', from, to, '*'),
+        supabase.from('payments').select('*').eq('verified', true).gte('created_at', from.toISOString()).lte('created_at', to.toISOString()),
+        supabase.from('profiles').select('id, first_name, last_name, open_balance_cents').order('last_name')
+      ])
+
+      if (d.data) setDrinks(d.data)
+      setFullConsumptions(c || [])
+      setFullPurchases(pu || [])
+      if (pa.data) setPayments(pa.data)
+      if (pr.data) setProfiles(pr.data)
+    } catch (err) {
+      console.error('Error loading inventory data:', err)
+      addToast('Fehler beim Laden der Bestandsdaten', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
+
+  // Refetch when filter changes
+  useEffect(() => {
+    loadData()
+  }, [filterMode, customRange])
 
   const calculatePeriodStats = () => {
     const { from, to } = getDateRange()
@@ -134,13 +172,15 @@ export default function InventoryRevenuePage() {
     fullPurchases.forEach(p => {
       const d = new Date(p.created_at); if (d < from || d > to) return;
       const cur = map.get(p.drink_id)
-      if (cur) cur.bought += (p.quantity || 0) * 20
+      const qty = Number(p.quantity)
+      if (cur && !isNaN(qty)) cur.bought += (qty * 20)
     })
 
     fullConsumptions.forEach(c => {
       const d = new Date(c.created_at); if (d < from || d > to) return;
       const cur = map.get(c.drink_id)
-      if (cur) cur.sold += (c.quantity || 0)
+      const qty = Number(c.quantity)
+      if (cur && !isNaN(qty)) cur.sold += qty
     })
     return map
   }, [fullPurchases, fullConsumptions, drinks, filterMode, customRange])

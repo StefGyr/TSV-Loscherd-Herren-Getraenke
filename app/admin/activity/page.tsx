@@ -74,103 +74,123 @@ export default function ActivityPage() {
 
       const { from, to } = getDateRange()
 
-      // 🔹 Abfrage für den Zeitraum
-      let query = supabase
-        .from('consumptions')
-        .select(`
+      // Helper for fetching rows from a table with date filter and pagination
+      const fetchRange = async (table: string, select = '*', fromDate: Date, toDate: Date) => {
+        let allData: any[] = []
+        let page = 0
+        const pageSize = 1000
+
+        while (true) {
+          const { data, error } = await supabase
+            .from(table)
+            .select(select)
+            .gte('created_at', fromDate.toISOString())
+            .lte('created_at', toDate.toISOString())
+            .order('created_at', { ascending: true })
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+
+          if (error) throw error
+          if (!data || data.length === 0) break
+
+          allData = [...allData, ...data]
+          if (data.length < pageSize) break
+          page++
+        }
+        return allData
+      }
+
+      try {
+        const querySelect = `
                     created_at,
                     quantity,
                     source,
                     unit_price_cents,
+                    user_id,
                     drinks!consumptions_drink_id_fkey(name),
                     profiles!consumptions_user_id_fkey(first_name,last_name)
-                `)
-        .gte('created_at', from.toISOString())
-        .lte('created_at', to.toISOString())
+                `
+        const rawData = await fetchRange('consumptions', querySelect, from, to)
 
-      if (!admin) query = query.eq('user_id', user.id)
-      const { data, error } = await query
+        // Filter by user if not admin
+        const finalData = admin ? rawData : rawData.filter((c: any) => c.user_id === user.id)
+        // Wait, I need user_id in the select to filter it client side
 
-      if (error) {
-        console.error(error)
+        /* --- Statisik für Zeitraum --- */
+        const totalQty = rawData.reduce((s, c) => s + (c.quantity || 0), 0)
+        const uniqueDrinks = new Set(rawData.map(c => {
+          const d = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
+          return d?.name
+        })).size
+        setStats({ totalQty, distinctDrinks: uniqueDrinks })
+
+        /* --- Chart Data (Täglich) --- */
+        const chartMap: Record<string, number> = {}
+
+        // Only fill zeros if range is small enough (<= 60 days) to keep chart readable
+        const dayDiff = (to.getTime() - from.getTime()) / (1000 * 3600 * 24)
+        if (dayDiff <= 60 && dayDiff >= 0) {
+          for (let i = 0; i <= dayDiff; i++) {
+            const d = new Date(from)
+            d.setDate(d.getDate() + i)
+            chartMap[d.toISOString().slice(0, 10)] = 0
+          }
+        }
+
+        rawData.forEach(c => {
+          const day = c.created_at.slice(0, 10)
+          if (chartMap[day] === undefined) chartMap[day] = 0
+          chartMap[day] += c.quantity || 0
+        })
+
+        const chartList = Object.entries(chartMap)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, count]) => ({
+            date: new Date(date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+            count
+          }))
+        setChartData(chartList)
+
+
+        /* --- Bestenliste (Zeitraum) --- */
+        const rankingMap: Record<string, number> = {}
+        rawData.forEach(c => {
+          const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
+          const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+          rankingMap[name] = (rankingMap[name] || 0) + (c.quantity || 0)
+        })
+        const rankingList = Object.entries(rankingMap)
+          .map(([user, qty]) => ({ user, qty }))
+          .sort((a, b) => b.qty - a.qty)
+        setRanking(rankingList)
+
+
+        /* --- Feed / Gruppierung --- */
+        const grouped: Record<string, any> = {}
+        rawData.forEach(c => {
+          const date = c.created_at.slice(0, 10)
+          const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
+          const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
+          const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
+          const drinkName = drinkObj?.name || 'Unbekannt'
+
+          grouped[date] = grouped[date] || { drinks: {}, crates: [] }
+
+          const isFree = c.unit_price_cents === 0 || c.source === 'free'
+          const label = isFree ? `${drinkName} (Freibier)` : drinkName
+
+          grouped[date].drinks[userName] = grouped[date].drinks[userName] || {}
+          grouped[date].drinks[userName][label] = (grouped[date].drinks[userName][label] || 0) + (c.quantity || 0)
+
+          if (c.source === 'crate' && (c.unit_price_cents ?? 0) > 0) {
+            grouped[date].crates.push({ user: userName, drink: drinkName })
+          }
+        })
+        setDailyGrouped(grouped)
+      } catch (err) {
+        console.error('Error loading activity data:', err)
+      } finally {
         setLoading(false)
-        return
       }
-
-      const rawData = data || []
-
-      /* --- Statisik für Zeitraum --- */
-      const totalQty = rawData.reduce((s, c) => s + (c.quantity || 0), 0)
-      const uniqueDrinks = new Set(rawData.map(c => {
-        const d = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
-        return d?.name
-      })).size
-      setStats({ totalQty, distinctDrinks: uniqueDrinks })
-
-      /* --- Chart Data (Täglich) --- */
-      const chartMap: Record<string, number> = {}
-
-      // Only fill zeros if range is small enough (<= 60 days) to keep chart readable
-      const dayDiff = (to.getTime() - from.getTime()) / (1000 * 3600 * 24)
-      if (dayDiff <= 60 && dayDiff >= 0) {
-        for (let i = 0; i <= dayDiff; i++) {
-          const d = new Date(from)
-          d.setDate(d.getDate() + i)
-          chartMap[d.toISOString().slice(0, 10)] = 0
-        }
-      }
-
-      rawData.forEach(c => {
-        const day = c.created_at.slice(0, 10)
-        if (chartMap[day] === undefined) chartMap[day] = 0
-        chartMap[day] += c.quantity || 0
-      })
-
-      const chartList = Object.entries(chartMap)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, count]) => ({
-          date: new Date(date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
-          count
-        }))
-      setChartData(chartList)
-
-
-      /* --- Bestenliste (Zeitraum) --- */
-      const rankingMap: Record<string, number> = {}
-      rawData.forEach(c => {
-        const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
-        const name = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
-        rankingMap[name] = (rankingMap[name] || 0) + (c.quantity || 0)
-      })
-      const rankingList = Object.entries(rankingMap)
-        .map(([user, qty]) => ({ user, qty }))
-        .sort((a, b) => b.qty - a.qty)
-      setRanking(rankingList)
-
-
-      /* --- Feed / Gruppierung --- */
-      const grouped: Record<string, any> = {}
-      rawData.forEach(c => {
-        const date = c.created_at.slice(0, 10)
-        const prof = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles
-        const userName = `${prof?.first_name || ''} ${prof?.last_name || ''}`.trim() || 'Unbekannt'
-        const drinkObj = Array.isArray(c.drinks) ? c.drinks[0] : c.drinks
-        const drinkName = drinkObj?.name || 'Unbekannt'
-
-        grouped[date] = grouped[date] || { drinks: {}, crates: [] }
-
-        const isFree = c.unit_price_cents === 0 || c.source === 'free'
-        const label = isFree ? `${drinkName} (Freibier)` : drinkName
-
-        grouped[date].drinks[userName] = grouped[date].drinks[userName] || {}
-        grouped[date].drinks[userName][label] = (grouped[date].drinks[userName][label] || 0) + (c.quantity || 0)
-
-        if (c.source === 'crate' && (c.unit_price_cents ?? 0) > 0) {
-          grouped[date].crates.push({ user: userName, drink: drinkName })
-        }
-      })
-      setDailyGrouped(grouped)
-      setLoading(false)
     }
     load()
   }, [filterMode, customRange])
