@@ -95,7 +95,7 @@ export default function InventoryRevenuePage() {
     try {
       const [d, c, pu, pa, pr] = await Promise.all([
         supabase.from('drinks').select('*').order('name'),
-        fetchRange('consumptions', 'created_at', from, to, 'id, drink_id, quantity, unit_price_cents, source, created_at, via_terminal'),
+        fetchRange('consumptions', 'created_at', from, to, 'id, drink_id, user_id, quantity, unit_price_cents, source, created_at, via_terminal'),
         fetchRange('purchases', 'created_at', from, to, '*'),
         supabase.from('payments').select('*').eq('verified', true).gte('created_at', from.toISOString()).lte('created_at', to.toISOString()),
         supabase.from('profiles').select('id, first_name, last_name, open_balance_cents').order('last_name')
@@ -218,20 +218,100 @@ export default function InventoryRevenuePage() {
                 const type = e.target.value as 'consumptions' | 'purchases' | 'payments'
                 const timestamp = new Date().toISOString().slice(0, 10)
 
-                let data: any[] = []
-                if (type === 'consumptions') data = fullConsumptions
-                if (type === 'purchases') data = fullPurchases
-                if (type === 'payments') data = payments
+                let csvContent = ''
+                
+                // Helper to format date in German locale: DD.MM.YYYY HH:mm
+                const formatDate = (isoString: string) => {
+                  if (!isoString) return ''
+                  const d = new Date(isoString)
+                  if (isNaN(d.getTime())) return isoString
+                  const pad = (n: number) => n.toString().padStart(2, '0')
+                  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+                }
 
-                if (data.length === 0) return addToast('Keine Daten vorhanden', 'error')
+                // Helper to format currency values to German Excel standard (with decimal comma)
+                const formatEuro = (cents: number) => {
+                  return (cents / 100).toFixed(2).replace('.', ',')
+                }
 
-                const headers = Object.keys(data[0])
-                const csvContent = [
-                  headers.join(','),
-                  ...data.map(row => headers.map(fieldName => JSON.stringify(row[fieldName], (_, v) => v ?? '')).join(','))
-                ].join('\n')
+                // Helper to wrap string values in double quotes, escaping existing double quotes for CSV
+                const csvStr = (val: any) => {
+                  if (val === null || val === undefined) return '""'
+                  const str = String(val).replace(/"/g, '""')
+                  return `"${str}"`
+                }
 
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+                if (type === 'consumptions') {
+                  const headers = ['Datum', 'Getränk', 'Verbraucher', 'Menge', 'Einzelpreis (€)', 'Gesamtpreis (€)', 'Typ', 'Terminal-Buchung']
+                  const rows = fullConsumptions.map(row => {
+                    const drinkName = drinks.find(d => d.id === row.drink_id)?.name || 'Unbekannt'
+                    const user = profiles.find(p => p.id === row.user_id)
+                    const userName = user ? `${user.first_name} ${user.last_name}` : 'Unbekannt'
+                    
+                    const priceCents = row.unit_price_cents || 0
+                    const quantity = row.quantity || 0
+                    const totalCents = priceCents * quantity
+
+                    let typeLabel = 'Normaler Kauf'
+                    if (row.source === 'free' || priceCents === 0) {
+                      typeLabel = 'Freibier'
+                    } else if (row.source === 'crate') {
+                      typeLabel = 'Kistenspende'
+                    }
+
+                    const viaTerminalLabel = row.via_terminal ? 'Ja' : 'Nein'
+
+                    return [
+                      csvStr(formatDate(row.created_at)),
+                      csvStr(drinkName),
+                      csvStr(userName),
+                      quantity,
+                      csvStr(formatEuro(priceCents)),
+                      csvStr(formatEuro(totalCents)),
+                      csvStr(typeLabel),
+                      csvStr(viaTerminalLabel)
+                    ].join(';')
+                  })
+                  csvContent = [headers.join(';'), ...rows].join('\n')
+                } else if (type === 'purchases') {
+                  const headers = ['Datum', 'Getränk', 'Menge (Kisten)', 'Kistenpreis (€)', 'Gesamtkosten (€)']
+                  const rows = fullPurchases.map(row => {
+                    const drinkName = drinks.find(d => d.id === row.drink_id)?.name || 'Unbekannt'
+                    const quantity = row.quantity || 0
+                    const cratePrice = row.crate_price_cents || 0
+                    const totalCents = Math.round(quantity * cratePrice)
+
+                    return [
+                      csvStr(formatDate(row.created_at)),
+                      csvStr(drinkName),
+                      String(quantity).replace('.', ','),
+                      csvStr(formatEuro(cratePrice)),
+                      csvStr(formatEuro(totalCents))
+                    ].join(';')
+                  })
+                  csvContent = [headers.join(';'), ...rows].join('\n')
+                } else if (type === 'payments') {
+                  const headers = ['Datum', 'Nutzer', 'Betrag (€)', 'Methode', 'Status']
+                  const rows = payments.map(row => {
+                    const user = profiles.find(p => p.id === row.user_id)
+                    const userName = user ? `${user.first_name} ${user.last_name}` : 'Unbekannt'
+                    const statusLabel = row.verified ? 'Verifiziert' : 'Ausstehend'
+
+                    return [
+                      csvStr(formatDate(row.created_at)),
+                      csvStr(userName),
+                      csvStr(formatEuro(row.amount_cents || 0)),
+                      csvStr(row.method || ''),
+                      csvStr(statusLabel)
+                    ].join(';')
+                  })
+                  csvContent = [headers.join(';'), ...rows].join('\n')
+                }
+
+                if (!csvContent) return addToast('Keine Daten vorhanden', 'error')
+
+                // Add UTF-8 BOM (\uFEFF) to make Excel recognize UTF-8 encoding immediately
+                const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
                 const link = document.createElement('a')
                 link.href = URL.createObjectURL(blob)
                 link.download = `tsv_${type}_${timestamp}.csv`
