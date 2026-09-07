@@ -394,14 +394,20 @@ export default function PlatzbelegungAdmin() {
                       className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-green-500/50 outline-none transition"
                     >
                       <option value="Herren">Herren</option>
+                      <option value="Herren-Reserve">Herren-Reserve</option>
+                      <option value="AH">AH (Ü32)</option>
+                      <option value="Herren Ü32">Herren Ü32</option>
                       <option value="Frauen">Frauen</option>
                       <option value="A-Junioren">A-Junioren</option>
                       <option value="B-Junioren">B-Junioren</option>
                       <option value="C-Junioren">C-Junioren</option>
                       <option value="D-Junioren">D-Junioren</option>
                       <option value="E-Junioren">E-Junioren</option>
+                      <option value="B-Juniorinnen">B-Juniorinnen</option>
+                      <option value="C-Juniorinnen">C-Juniorinnen</option>
+                      <option value="D-Juniorinnen">D-Juniorinnen</option>
+                      <option value="E-Juniorinnen">E-Juniorinnen</option>
                       <option value="Juniorinnen">Juniorinnen</option>
-                      <option value="AH">AH (Ü32)</option>
                     </select>
                   </div>
                   <div className="space-y-1">

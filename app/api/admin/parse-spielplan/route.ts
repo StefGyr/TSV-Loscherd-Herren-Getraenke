@@ -32,14 +32,22 @@ function parseSpielplan(text: string) {
     const sectionHeaders = [
         'Herren Ü32', 'Herren', 'Herren-Reserve',
         'A-Junioren', 'B-Junioren', 'C-Junioren',
-        'D-Junioren', 'E-Junioren', 'Frauen',
-        'C-Juniorinnen', 'E-Juniorinnen'
+        'D-Junioren', 'E-Junioren', 'F-Junioren', 'G-Junioren',
+        'Frauen', 'Frauen-Reserve',
+        'A-Juniorinnen', 'B-Juniorinnen', 'C-Juniorinnen',
+        'D-Juniorinnen', 'E-Juniorinnen', 'F-Juniorinnen', 'G-Juniorinnen'
     ];
+
+    const isSectionHeader = (line: string) => {
+        if (sectionHeaders.some(h => h.toLowerCase() === line.toLowerCase())) return true;
+        if (/^[A-G]-Junior(en|innen)(\s*\(.*\))?$/i.test(line)) return true;
+        return false;
+    };
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        if (sectionHeaders.includes(line)) {
+        if (isSectionHeader(line)) {
             currentSection = line;
             continue;
         }
@@ -100,7 +108,7 @@ function parseSpielplan(text: string) {
                         break;
                     }
                     // If we hit another match row or section header, stop looking
-                    if (dateRegex.test(nextLine) || sectionHeaders.includes(nextLine)) break;
+                    if (dateRegex.test(nextLine) || isSectionHeader(nextLine)) break;
                 }
             }
 
