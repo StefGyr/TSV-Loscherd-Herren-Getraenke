@@ -227,6 +227,16 @@ export default function TopTerminalPage() {
     setPin('')
     setStep('overview')
     setTimer(60)
+
+    // 🕒 Aktivitäts-Tracking fürs Terminal
+    void supabase
+      .from('profiles')
+      .update({
+        last_seen_at: new Date().toISOString(),
+        last_seen_source: 'terminal',
+      })
+      .eq('id', data.id)
+
     await Promise.all([
       loadMyWeekStats(data.id),
       loadLastPayment(data.id),

@@ -5,11 +5,11 @@ import { usePathname } from 'next/navigation'
 
 const navItems = [
   { href: '/admin', label: 'Übersicht' },
+  { href: '/admin/bookings', label: 'Live-Monitor / Buchungen' },
   { href: '/admin/stock', label: 'Bestandspflege' },
   { href: '/admin/users', label: 'Nutzer & Guthaben' },
   { href: '/admin/activity', label: 'Aktivität' },
   { href: '/admin/inventory', label: 'Bestand & Finanzen' },
-
   { href: '/admin/platzbelegung', label: 'Platzbelegung' },
 ]
 

@@ -13,6 +13,8 @@ type Profile = {
     first_name: string | null
     last_name: string | null
     open_balance_cents: number | null
+    last_seen_at?: string | null
+    last_seen_source?: string | null
 }
 
 type Drink = { id: number; name: string; price_cents: number }
@@ -101,12 +103,15 @@ export default function UsersPage() {
                 return allData
             }
 
-            // Note: payments is not used in the UI, so we stop fetching it here to save resources.
-            // If you need it later, use fetchAll('payments')
-            const [profilesData, drinkRes] = await Promise.all([
-                fetchAll('profiles', 'id, name, first_name, last_name, open_balance_cents'),
-                supabase.from('drinks').select('id, name, price_cents').order('name'),
-            ])
+            // Fetch profiles (with last_seen fields if available)
+            let profilesData: any[] = []
+            try {
+                profilesData = await fetchAll('profiles', 'id, name, first_name, last_name, open_balance_cents, last_seen_at, last_seen_source')
+            } catch {
+                profilesData = await fetchAll('profiles', 'id, name, first_name, last_name, open_balance_cents')
+            }
+
+            const drinkRes = await supabase.from('drinks').select('id, name, price_cents').order('name')
 
             setProfiles(profilesData || [])
             setDrinks(drinkRes.data || [])
@@ -461,8 +466,20 @@ export default function UsersPage() {
                                     {filteredProfiles.map(p => (
                                         <tr key={p.id} className={`hover:bg-gray-800/50 transition ${selectedUser?.id === p.id ? 'bg-blue-900/20' : ''}`}>
                                             <td className="px-4 py-3 font-medium">
-                                                <div className="text-white">{getDisplayName(p)}</div>
-                                                {/* Optional: Add email or info if available */}
+                                                <div className="text-white flex items-center gap-2">
+                                                    <span>{getDisplayName(p)}</span>
+                                                    {p.last_seen_at && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 font-normal">
+                                                            {(() => {
+                                                                const d = new Date(p.last_seen_at)
+                                                                const isToday = new Date().toDateString() === d.toDateString()
+                                                                return isToday
+                                                                    ? `🟢 Heute ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
+                                                                    : `Zul. ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}`
+                                                            })()}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className={`px-4 py-3 text-right font-mono font-bold ${getRowColor(p.open_balance_cents || 0)}`}>
                                                 {formatEuro(p.open_balance_cents)}
@@ -507,6 +524,17 @@ export default function UsersPage() {
                                         <div>
                                             <h2 className="text-2xl font-bold">{getDisplayName(selectedUser)}</h2>
                                             <p className="text-sm text-gray-400 font-mono text-xs mt-1">ID: {selectedUser.id}</p>
+                                            <div className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+                                                <span>Zuletzt online:</span>
+                                                {selectedUser.last_seen_at ? (
+                                                    <span className="text-emerald-400 font-medium">
+                                                        {new Date(selectedUser.last_seen_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um {new Date(selectedUser.last_seen_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+                                                        {selectedUser.last_seen_source === 'terminal' ? ' (Terminal 📟)' : ' (Handy 📱)'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-500">Noch nie eingeloggt</span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className={`text-3xl font-bold ${getRowColor(selectedUser.open_balance_cents || 0)}`}>
                                             {formatEuro(selectedUser.open_balance_cents)}

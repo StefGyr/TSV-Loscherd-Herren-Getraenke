@@ -23,6 +23,8 @@ export const metadata: Metadata = {
   themeColor: "#00FF66",
 }
 
+import ActivityTracker from "@/components/ActivityTracker"
+
 export default function RootLayout({
   children,
 }: {
@@ -45,6 +47,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <ActivityTracker />
         {children}
       </body>
     </html>
