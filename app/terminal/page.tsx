@@ -290,12 +290,9 @@ export default function TopTerminalPage() {
     setCheckoutLines(lines)
     setCheckoutTotals({ totalQty, freeUsed, payCents, remainingPool: Math.max(0, remaining) })
 
-    // Wenn Freibier vorhanden → zuerst die Entscheidung
-    if (freePool > 0) {
-      setUseFreeBeerChoice('pending')
-    } else {
-      setPopup('checkout')
-    }
+    // Freibier standardmäßig direkt anwenden wenn verfügbar
+    setUseFreeBeerChoice(freePool > 0 ? 'yes' : 'no')
+    setPopup('checkout')
   }, [drinks, freePool]) // basiert auf deiner aktuellen Logik :contentReference[oaicite:4]{index=4}
 
   const confirmCheckout = useCallback(async () => {
@@ -574,40 +571,32 @@ export default function TopTerminalPage() {
 
       {/* ---------- Popups ---------- */}
 
-      {/* Wahl: Freibier nutzen? */}
-      <AnimatePresence>
-        {useFreeBeerChoice === 'pending' && (
-          <motion.div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="bg-neutral-900 text-white w-[min(500px,95vw)] rounded-2xl p-6 shadow-2xl text-center">
-              <h3 className="text-xl font-semibold mb-3">🎉 Freibier verwenden?</h3>
-              <p className="text-sm text-neutral-300 mb-6">
-                Es sind derzeit <b>{freePool}</b> Freigetränke verfügbar.<br />
-                Möchtest du sie beim Verbuchen berücksichtigen?
-              </p>
-              <div className="flex justify-center gap-3">
-                <button className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-800" onClick={() => { setUseFreeBeerChoice('yes'); setPopup('checkout') }}>
-                  🎉 Ja, Freibier nutzen
-                </button>
-                <button className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800" onClick={() => { setUseFreeBeerChoice('no'); setPopup('checkout') }}>
-                  💰 Nein, normal bezahlen
-                </button>
-              </div>
-              <button className="mt-4 text-sm text-neutral-400 underline" onClick={() => setUseFreeBeerChoice(null)}>
-                Abbrechen
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Checkout-Übersicht */}
+      {/* Checkout-Übersicht (Direkt mit Freibier & 5s-Timer) */}
       <AnimatePresence>
         {popup === 'checkout' && (
           <motion.div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div className="bg-neutral-900 text-white w-[min(720px,95vw)] rounded-2xl p-6 shadow-2xl">
-              <h3 className="text-xl font-semibold mb-4">Buchungsübersicht</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-xl font-semibold">Buchungsübersicht</h3>
+                {freePool > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setUseFreeBeerChoice((prev) => (prev === 'no' ? 'yes' : 'no'))}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 active:scale-95 ${
+                      useFreeBeerChoice === 'no'
+                        ? 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:text-white'
+                        : 'bg-emerald-950/70 border-emerald-700/80 text-emerald-300 shadow'
+                    }`}
+                  >
+                    {useFreeBeerChoice === 'no' ? (
+                      <>💰 Normal bezahlen (Klick für Freibier)</>
+                    ) : (
+                      <>🎉 Freibier aktiv (Klick für selbst zahlen)</>
+                    )}
+                  </button>
+                )}
+              </div>
               <div className="space-y-2 max-h-[50vh] overflow-auto pr-2">
                 {checkoutLines.map((ln) => {
                   const isNormalPay = useFreeBeerChoice === 'no'
