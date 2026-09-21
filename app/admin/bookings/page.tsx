@@ -80,6 +80,7 @@ export default function BookingsAdminPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [drinks, setDrinks] = useState<Drink[]>([])
   const [consumptions, setConsumptions] = useState<ConsumptionEntry[]>([])
+  const [dailyActivities, setDailyActivities] = useState<any[]>([])
   const [allLastBookings, setAllLastBookings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [dbColumnMissing, setDbColumnMissing] = useState(false)
@@ -209,6 +210,20 @@ export default function BookingsAdminPage() {
           }
         }
       }
+      // 5. Täglich erfasste Aktivitäten im Zeitraum laden
+      try {
+        const fromDateStr = from.toISOString().slice(0, 10)
+        const toDateStr = to.toISOString().slice(0, 10)
+        const { data: actData } = await supabase
+          .from('user_daily_activity')
+          .select('user_id, activity_date, last_seen_at, source')
+          .gte('activity_date', fromDateStr)
+          .lte('activity_date', toDateStr)
+          .order('last_seen_at', { ascending: false })
+        setDailyActivities(actData || [])
+      } catch {
+        setDailyActivities([])
+      }
       setAllLastBookings(lastBookingMap)
     } catch (err: any) {
       console.error('Fehler beim Laden des Buchungsjournals:', err)
@@ -241,20 +256,62 @@ export default function BookingsAdminPage() {
   // Prüfen, ob ein User im gewählten Zeitraum online war
   const { from: periodFrom, to: periodTo } = useMemo(() => getDateRange(), [timeframe, customRange])
 
-  const checkUserOnlineInPeriod = (p: Profile) => {
-    if (!p.last_seen_at) return false
-    const seen = new Date(p.last_seen_at)
-    return seen >= periodFrom && seen <= periodTo
+  const dailyActivityMap = useMemo(() => {
+    const map: Record<string, { last_seen_at: string; source: 'app' | 'terminal' }> = {}
+    for (const a of dailyActivities) {
+      if (!map[a.user_id] || new Date(a.last_seen_at) > new Date(map[a.user_id].last_seen_at)) {
+        map[a.user_id] = { last_seen_at: a.last_seen_at, source: a.source }
+      }
+    }
+    return map
+  }, [dailyActivities])
+
+  const getUserPeriodActivity = (p: Profile) => {
+    const bookings = userBookingsInPeriod[p.id]
+    const hasBookings = (bookings?.items?.length || 0) > 0
+    const dailyRecord = dailyActivityMap[p.id]
+
+    const profileSeen = p.last_seen_at ? new Date(p.last_seen_at) : null
+    const isProfileSeenInPeriod = profileSeen ? (profileSeen >= periodFrom && profileSeen <= periodTo) : false
+
+    const wasActive = hasBookings || !!dailyRecord || isProfileSeenInPeriod
+
+    let periodLastSeen: string | null = null
+    let periodSource: 'app' | 'terminal' | null = null
+
+    if (dailyRecord) {
+      periodLastSeen = dailyRecord.last_seen_at
+      periodSource = dailyRecord.source
+    }
+    if (hasBookings && bookings.items.length > 0) {
+      const latestCons = bookings.items[0]
+      if (!periodLastSeen || new Date(latestCons.created_at) > new Date(periodLastSeen)) {
+        periodLastSeen = latestCons.created_at
+        periodSource = latestCons.via_terminal ? 'terminal' : 'app'
+      }
+    }
+    if (isProfileSeenInPeriod && p.last_seen_at) {
+      if (!periodLastSeen || new Date(p.last_seen_at) > new Date(periodLastSeen)) {
+        periodLastSeen = p.last_seen_at
+        periodSource = p.last_seen_source || 'app'
+      }
+    }
+
+    return {
+      wasActive,
+      lastSeenAt: periodLastSeen,
+      source: periodSource,
+    }
   }
 
   // Präsenz-Liste filtern
   const filteredPresenceProfiles = useMemo(() => {
     return profiles.filter((p) => {
-      const wasOnline = checkUserOnlineInPeriod(p)
+      const activity = getUserPeriodActivity(p)
 
       // Filter: offline vs online vs all
-      if (presenceFilter === 'offline' && wasOnline) return false
-      if (presenceFilter === 'online' && !wasOnline) return false
+      if (presenceFilter === 'offline' && activity.wasActive) return false
+      if (presenceFilter === 'online' && !activity.wasActive) return false
 
       // Suche
       if (presenceSearch.trim()) {
@@ -264,7 +321,7 @@ export default function BookingsAdminPage() {
 
       return true
     })
-  }, [profiles, presenceFilter, presenceSearch, periodFrom, periodTo])
+  }, [profiles, presenceFilter, presenceSearch, periodFrom, periodTo, userBookingsInPeriod, dailyActivityMap])
 
   // Journal filtern
   const filteredJournal = useMemo(() => {
@@ -298,7 +355,7 @@ export default function BookingsAdminPage() {
   // KPI-Berechnungen
   const stats = useMemo(() => {
     const totalUsers = profiles.length
-    const onlineUsersCount = profiles.filter(checkUserOnlineInPeriod).length
+    const onlineUsersCount = profiles.filter((p) => getUserPeriodActivity(p).wasActive).length
     const offlineUsersCount = totalUsers - onlineUsersCount
 
     let totalDrinks = 0
@@ -738,8 +795,10 @@ export default function BookingsAdminPage() {
                       </tr>
                     ) : (
                       filteredPresenceProfiles.map((p) => {
-                        const wasOnline = checkUserOnlineInPeriod(p)
-                        const seenInfo = formatLastSeen(p.last_seen_at)
+                        const activity = getUserPeriodActivity(p)
+                        const wasOnline = activity.wasActive
+                        const seenInfo = wasOnline ? formatLastSeen(activity.lastSeenAt) : formatLastSeen(p.last_seen_at)
+                        const activeChannel = wasOnline ? activity.source : p.last_seen_source
                         const bookings = userBookingsInPeriod[p.id]
                         const totalQty = bookings?.totalQty || 0
                         const lastBookingDate = allLastBookings[p.id]
@@ -771,18 +830,25 @@ export default function BookingsAdminPage() {
 
                             {/* Zuletzt online Status */}
                             <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <span className={seenInfo.color}>{seenInfo.label}</span>
-                              </div>
+                              {wasOnline ? (
+                                <div className="flex items-center gap-2">
+                                  <span className={seenInfo.color}>{seenInfo.label}</span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <span className="text-red-400 font-medium">Nicht im Zeitraum</span>
+                                  <div className="text-[11px] text-neutral-500">Zul. {seenInfo.label}</div>
+                                </div>
+                              )}
                             </td>
 
                             {/* Kanal */}
                             <td className="py-3 px-4">
-                              {p.last_seen_source === 'terminal' ? (
+                              {activeChannel === 'terminal' ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-purple-950/60 border border-purple-800/50 text-purple-300">
                                   <Monitor className="w-3 h-3" /> Terminal
                                 </span>
-                              ) : p.last_seen_source === 'app' ? (
+                              ) : activeChannel === 'app' ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-blue-950/60 border border-blue-800/50 text-blue-300">
                                   <Smartphone className="w-3 h-3" /> Handy
                                 </span>

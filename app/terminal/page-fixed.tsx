@@ -397,6 +397,7 @@ export default function TopTerminalPage() {
           quantity: line.freeQty,
           unit_price_cents: 0,
           source: 'single',
+          via_terminal: true,
         })
         freeUsed += line.freeQty
       }
@@ -407,6 +408,7 @@ export default function TopTerminalPage() {
           quantity: line.payQty,
           unit_price_cents: line.unitCents,
           source: 'single',
+          via_terminal: true,
         })
       }
       if (line.name.toLowerCase().includes('spezi')) {
@@ -483,6 +485,7 @@ export default function TopTerminalPage() {
       quantity: BOTTLES_PER_CRATE,
       unit_price_cents: selectedDrink.crate_price_cents,
       source: 'crate' as const,
+      via_terminal: true,
     }]
 
     // Insert via SECURITY DEFINER RPC

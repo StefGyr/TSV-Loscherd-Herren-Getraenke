@@ -229,13 +229,24 @@ export default function TopTerminalPage() {
     setTimer(60)
 
     // 🕒 Aktivitäts-Tracking fürs Terminal
+    const nowIso = new Date().toISOString()
+    const todayStr = nowIso.slice(0, 10)
     void supabase
       .from('profiles')
       .update({
-        last_seen_at: new Date().toISOString(),
+        last_seen_at: nowIso,
         last_seen_source: 'terminal',
       })
       .eq('id', data.id)
+
+    void supabase
+      .from('user_daily_activity')
+      .upsert({
+        user_id: data.id,
+        activity_date: todayStr,
+        last_seen_at: nowIso,
+        source: 'terminal',
+      }, { onConflict: 'user_id,activity_date' })
 
     await Promise.all([
       loadMyWeekStats(data.id),
@@ -295,13 +306,13 @@ export default function TopTerminalPage() {
 
     for (const line of checkoutLines) {
       if (applyFreeBeer && line.freeQty > 0) {
-        inserts.push({ user_id: user.id, drink_id: line.drinkId, quantity: line.freeQty, unit_price_cents: 0, source: 'single' })
+        inserts.push({ user_id: user.id, drink_id: line.drinkId, quantity: line.freeQty, unit_price_cents: 0, source: 'single', via_terminal: true })
         freeUsed += line.freeQty
       }
       // Wenn kein Freibier genutzt werden soll → alles zahlend
       const qty = applyFreeBeer ? line.payQty : line.qty
       if (qty > 0) {
-        inserts.push({ user_id: user.id, drink_id: line.drinkId, quantity: qty, unit_price_cents: line.unitCents, source: 'single' })
+        inserts.push({ user_id: user.id, drink_id: line.drinkId, quantity: qty, unit_price_cents: line.unitCents, source: 'single', via_terminal: true })
       }
       if (line.name.toLowerCase().includes('spezi')) {
         anySpezi = true
@@ -366,6 +377,7 @@ export default function TopTerminalPage() {
       quantity: BOTTLES_PER_CRATE,
       unit_price_cents: perBottle,
       source: 'crate' as const,
+      via_terminal: true,
     }]
 
     await supabase.rpc('terminal_insert_consumptions', { _rows: rows as any })

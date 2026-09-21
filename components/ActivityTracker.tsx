@@ -28,7 +28,7 @@ export default function ActivityTracker() {
 
         const nowIso = new Date().toISOString()
 
-        // 1. Try direct update
+        // 1. Try direct update of profiles
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -42,9 +42,20 @@ export default function ActivityTracker() {
           await supabase.rpc('update_user_last_seen', { source_input: 'app' })
         }
 
+        // 3. Täglicher Aktivitätseintrag für Historie
+        const todayStr = nowIso.slice(0, 10)
+        await supabase
+          .from('user_daily_activity')
+          .upsert({
+            user_id: user.id,
+            activity_date: todayStr,
+            last_seen_at: nowIso,
+            source: 'app',
+          }, { onConflict: 'user_id,activity_date' })
+
         localStorage.setItem(STORAGE_KEY, String(now))
       } catch {
-        // Silently ignore if column does not exist yet or offline
+        // Silently ignore if column/table does not exist yet or offline
       }
     }
 
