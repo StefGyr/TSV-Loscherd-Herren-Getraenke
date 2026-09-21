@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase-browser'
+import { Clock } from 'lucide-react'
 
 // -----------------------------
 // Typen
@@ -98,6 +99,7 @@ export default function TopTerminalPage() {
   type PopupType = null | 'checkout' | 'crateInfo' | 'quote'
   const [popup, setPopup] = useState<PopupType>(null)
   const [selectedDrink, setSelectedDrink] = useState<Drink | null>(null)
+  const [autoConfirmTimer, setAutoConfirmTimer] = useState<number>(5)
   const [checkoutLines, setCheckoutLines] = useState<CheckoutLine[]>([])
   const [checkoutTotals, setCheckoutTotals] = useState<{ totalQty: number; freeUsed: number; payCents: number; remainingPool: number }>({
     totalQty: 0,
@@ -468,6 +470,33 @@ export default function TopTerminalPage() {
     }, 5000)
   }, [user, checkoutLines, checkoutTotals.payCents, showToast])
 
+  // ⏱️ Auto-Confirm Countdown für Checkout-Popup (5 Sekunden)
+  const confirmCheckoutRef = useRef(confirmCheckout)
+  useEffect(() => {
+    confirmCheckoutRef.current = confirmCheckout
+  }, [confirmCheckout])
+
+  useEffect(() => {
+    if (popup !== 'checkout') {
+      setAutoConfirmTimer(5)
+      return
+    }
+
+    setAutoConfirmTimer(5)
+    const interval = setInterval(() => {
+      setAutoConfirmTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          void confirmCheckoutRef.current()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [popup])
+
   // -----------------------------
   // Kiste kaufen (pro Drink) – kein Freibierabzug
   // -----------------------------
@@ -729,9 +758,38 @@ export default function TopTerminalPage() {
                 <div>Verbleibendes Freibier: <b>{checkoutTotals.remainingPool}</b></div>
                 <div>Gesamtsumme: <b>{euro(checkoutTotals.payCents)}</b></div>
               </div>
-              <div className="mt-4 flex justify-end gap-2">
-                <button className="px-4 py-2 rounded-lg bg-neutral-700 hover:bg-neutral-600" onClick={() => setPopup(null)}>Abbrechen</button>
-                <button className="px-5 py-2 rounded-lg bg-green-600 hover:bg-green-700 font-semibold" onClick={confirmCheckout}>Bestätigen & buchen</button>
+              {/* ⏱️ Auto-Confirm Hinweis & Ladebalken */}
+              <div className="mt-4 p-3 rounded-xl bg-green-950/40 border border-green-800/50 flex items-center justify-between text-xs text-green-300">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-green-400 animate-pulse shrink-0" />
+                  <span>Automatische Buchung in <b>{autoConfirmTimer} Sekunden</b>...</span>
+                </div>
+                <div className="w-24 bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                  <motion.div
+                    className="bg-green-500 h-full"
+                    initial={{ width: '100%' }}
+                    animate={{ width: `${(autoConfirmTimer / 5) * 100}%` }}
+                    transition={{ duration: 0.9, ease: 'linear' }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end items-center gap-3 pt-2">
+                <button
+                  className="px-5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white font-medium text-sm transition active:scale-95"
+                  onClick={() => setPopup(null)}
+                >
+                  ✕ Abbrechen
+                </button>
+                <button
+                  className="px-6 py-2.5 rounded-xl bg-green-600 hover:bg-green-500 text-white font-bold text-sm shadow-lg shadow-green-950/50 transition flex items-center gap-2 active:scale-95"
+                  onClick={confirmCheckout}
+                >
+                  <span>Bestätigen & buchen</span>
+                  <span className="px-2 py-0.5 rounded-full bg-black/40 text-xs font-mono border border-white/20">
+                    {autoConfirmTimer}s
+                  </span>
+                </button>
               </div>
             </motion.div>
           </motion.div>
